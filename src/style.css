@@ -148,6 +148,7 @@ body, html {
   position: fixed;
   top: 78px;
   bottom: 92px;
+  max-height: calc(100vh - 170px);
   width: 295px;
   z-index: 10;
   background: var(--bg-panel);
@@ -170,6 +171,7 @@ body, html {
 }
 
 .panel-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -199,8 +201,14 @@ body, html {
 }
 
 .panel-body {
-  padding: 10px 13px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 13px 14px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.4) rgba(11, 22, 34, 0.4);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -215,15 +223,25 @@ body, html {
 }
 
 .panel-body::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
 }
 
-.panel-body::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+.panel-body::-webkit-scrollbar-track {
+  background: rgba(11, 22, 34, 0.4);
   border-radius: 4px;
 }
 
+.panel-body::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.38);
+  border-radius: 4px;
+}
+
+.panel-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.65);
+}
+
 .control-section {
+  flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
@@ -431,7 +449,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   right: 14px;
   z-index: 10;
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1fr 1.1fr 1fr;
+  grid-template-columns: 1.3fr 1fr 0.95fr 1.05fr 0.95fr 1.05fr;
   gap: 10px;
   padding: 10px 14px;
   background: var(--bg-panel);

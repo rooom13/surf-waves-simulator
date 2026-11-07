@@ -30,6 +30,25 @@ controls.minPolarAngle = 0.02;
 controls.maxPolarAngle = Math.PI * 0.96; // Allow tilting & orbiting underwater to inspect seabed structure
 controls.minDistance = 3;
 controls.maxDistance = 380;
+controls.screenSpacePanning = true;
+controls.panSpeed = 1.35;
+controls.mouseButtons = {
+  LEFT: THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.PAN, // Mousewheel click & drag moves the camera in screen space
+  RIGHT: THREE.MOUSE.PAN,
+};
+
+// Prevent browser middle-click autoscroll icon when dragging with the mousewheel button
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 1) {
+    e.preventDefault();
+  }
+});
+renderer.domElement.addEventListener('auxclick', (e) => {
+  if (e.button === 1) {
+    e.preventDefault();
+  }
+});
 
 // --- Sky Dome & Sun Lighting ---
 const ambientLight = new THREE.HemisphereLight(0x93c5fd, 0x1e293b, 0.9);
@@ -110,7 +129,8 @@ const oceanParams = {
   swellHeight: 2.2,
   swellPeriod: 14.0,
   swellDir: 0.0,
-  swellGrouping: 35.0,
+  swellGrouping: 45.0,
+  wavesPerSet: 6.0,
   secEnabled: true,
   secHeight: 0.3,
   secPeriod: 11.0,
@@ -207,6 +227,23 @@ function syncUIAndTelemetry() {
   document.getElementById('metric-peel-angle').textContent = `${t.peelAngle}° Peel`;
   document.getElementById('metric-peel-desc').textContent = t.peelDesc;
 
+  const valWavesPerSet = document.getElementById('val-waves-per-set');
+  if (valWavesPerSet) {
+    valWavesPerSet.textContent = `${t.wavesPerSet} waves (${t.setPeriodSec} s Set)`;
+  }
+  const metricSetPeriod = document.getElementById('metric-set-period');
+  if (metricSetPeriod) {
+    metricSetPeriod.textContent = `${t.setPeriodSec} s Cycle`;
+  }
+  const metricSetLull = document.getElementById('metric-set-lull');
+  if (metricSetLull) {
+    if (oceanParams.swellGrouping <= 5) {
+      metricSetLull.textContent = 'Continuous Train (0 s Lull)';
+    } else {
+      metricSetLull.textContent = `~${t.setWavesCount} Waves/Set • ${t.lullWaitSec} s Lull`;
+    }
+  }
+
   btyManager.renderMinimap(minimapCanvas, oceanParams.tideLevel, oceanParams.swellDir);
 }
 
@@ -256,6 +293,15 @@ bindSlider(
   oceanParams,
   'swellGrouping',
   (v) => `${v}%`,
+  syncUIAndTelemetry
+);
+
+bindSlider(
+  'waves-per-set',
+  'val-waves-per-set',
+  oceanParams,
+  'wavesPerSet',
+  (v) => `${v} waves (${Math.round(v * oceanParams.swellPeriod)} s Set)`,
   syncUIAndTelemetry
 );
 
@@ -465,7 +511,7 @@ brushButtons.forEach((btn) => {
     brushState.mode = btn.dataset.brush;
 
     const isSculpting = brushState.mode !== 'none';
-    controls.enabled = !isSculpting;
+    controls.mouseButtons.LEFT = isSculpting ? null : THREE.MOUSE.ROTATE;
     brushCursor.visible = isSculpting;
     brushSettings.classList.toggle('visible', isSculpting);
 

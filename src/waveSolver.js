@@ -86,7 +86,11 @@ export class HydroWaveSolver {
 
     const s1 = x * kx1 + z * kz1;
     const phase1 = k1 * s1 - omega1 * t;
-    const groupEnv = 1.0 - (oceanParams.swellGrouping / 100) * 0.35 * (0.5 - 0.5 * Math.cos(phase1 * 0.25));
+    const wavesPerSet = Math.max(2.0, oceanParams.wavesPerSet ?? 6.0);
+    const groupFactor = (oceanParams.swellGrouping ?? 45) / 100;
+    const rawGroup = 0.5 + 0.5 * Math.cos(phase1 / wavesPerSet);
+    const shapedGroup = Math.pow(rawGroup, 1.35);
+    const groupEnv = (1.0 - groupFactor * 0.78) + groupFactor * 0.90 * shapedGroup;
 
     const c1 = Math.cos(phase1);
     let etaInc = H1 * groupEnv * c1;

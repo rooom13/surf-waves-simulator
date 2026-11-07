@@ -102,10 +102,18 @@
 
         <div class="slider-row">
           <div class="slider-label">
-            <span>Wave Set Grouping</span>
+            <span>Set Lull Depth (Grouping)</span>
             <strong id="val-swell-grouping">45%</strong>
           </div>
           <input type="range" id="swell-grouping" min="0" max="100" step="5" value="45" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Set Cycle / Wait (N<sub>g</sub>)</span>
+            <strong id="val-waves-per-set">6 waves (84 s Set)</strong>
+          </div>
+          <input type="range" id="waves-per-set" min="3" max="14" step="1" value="6" />
         </div>
       </section>
 
@@ -358,6 +366,12 @@
       <span class="telemetry-label">PEEL ANGLE & RIDE</span>
       <div class="telemetry-main" id="metric-peel-angle">46° Peel</div>
       <div class="telemetry-sub" id="metric-peel-desc">Fast Makeable Pocket</div>
+    </div>
+
+    <div class="telemetry-card">
+      <span class="telemetry-label">SET WAIT TIME (T<sub>g</sub>)</span>
+      <div class="telemetry-main" id="metric-set-period">84 s Cycle</div>
+      <div class="telemetry-sub" id="metric-set-lull">3 Waves/Set • 38 s Lull</div>
     </div>
   </footer>
 
