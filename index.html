@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SurfLab 3D — Ocean Wave & Bathymetry Surf Simulator</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Top Navigation & Mode Bar -->
+  <header class="top-bar">
+    <div class="brand">
+      <div class="brand-icon">🌊</div>
+      <div>
+        <h1>SurfLab <span>3D</span></h1>
+        <p class="subtitle">Hydrodynamic Wave Shoaling & Bathymetry Simulator</p>
+      </div>
+    </div>
+
+    <div class="top-controls">
+      <div class="control-pill">
+        <label for="preset-select">Landscape / Break</label>
+        <select id="preset-select">
+          <option value="right_point">Right Point Break (Headland & Bay)</option>
+          <option value="left_point">Left Point Break (Headland & Bay)</option>
+          <option value="jetty_wedge">Rock Jetty & Sandbar Wedge</option>
+          <option value="reef_pass">Barrier Reef Pass & Deep Channel</option>
+          <option value="aframe_reef">A-Frame Reef Peak (Split Peak)</option>
+          <option value="beach_break">Beach Break (Sandbars & Rip Currents)</option>
+          <option value="rivermouth">River Mouth Estuary & Delta Bar</option>
+        </select>
+      </div>
+
+      <div class="control-pill">
+        <label for="camera-select">Camera View</label>
+        <select id="camera-select">
+          <option value="overview">Coastal Orbit View</option>
+          <option value="underwater">Underwater Seabed & Reef View</option>
+          <option value="lineup">Lineup / Shoulder View</option>
+          <option value="barrel">Wave Pocket / Tube View</option>
+          <option value="cliff">Headland Cliff Overlook</option>
+          <option value="topdown">Top-Down Refraction Map</option>
+        </select>
+      </div>
+
+      <div class="control-pill">
+        <label for="viz-select">Visualization</label>
+        <select id="viz-select">
+          <option value="realistic">Realistic Ocean & Foam</option>
+          <option value="xray">Translucent Water (See Reef)</option>
+          <option value="heatmap">Wave Energy & Shoaling Heatmap</option>
+          <option value="wireframe">3D Wave Mesh Wireframe</option>
+        </select>
+      </div>
+
+      <button id="pause-btn" class="action-btn" title="Pause / Resume Wave Propagation">
+        ⏸ Pause
+      </button>
+    </div>
+  </header>
+
+  <!-- Left Panel: Swell, Wind & Tide Parameters -->
+  <aside class="panel left-panel" id="ocean-panel">
+    <div class="panel-header">
+      <h2>Swell, Wind & Tide</h2>
+      <button class="collapse-btn" data-target="ocean-panel-body" title="Collapse Panel">−</button>
+    </div>
+
+    <div class="panel-body" id="ocean-panel-body">
+      <!-- Primary Swell -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Primary Groundswell</span>
+          <span class="badge" id="swell-energy-badge">142 kJ</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Swell Height (H<sub>s</sub>)</span>
+            <strong id="val-swell-height">2.2 m (7.2 ft)</strong>
+          </div>
+          <input type="range" id="swell-height" min="0.3" max="5.0" step="0.1" value="2.2" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Swell Period (T<sub>p</sub>)</span>
+            <strong id="val-swell-period">14 s (Groundswell)</strong>
+          </div>
+          <input type="range" id="swell-period" min="5" max="20" step="0.5" value="14" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Swell Direction (θ)</span>
+            <strong id="val-swell-dir">0° (Direct)</strong>
+          </div>
+          <input type="range" id="swell-dir" min="-55" max="55" step="1" value="0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Wave Set Grouping</span>
+            <strong id="val-swell-grouping">45%</strong>
+          </div>
+          <input type="range" id="swell-grouping" min="0" max="100" step="5" value="45" />
+        </div>
+      </section>
+
+      <!-- Secondary Swell -->
+      <section class="control-section">
+        <div class="section-title">
+          <label class="checkbox-label">
+            <input type="checkbox" id="sec-swell-enabled" checked />
+            <span>Secondary Cross-Swell</span>
+          </label>
+          <span class="badge subtle">Cross Spectrum</span>
+        </div>
+
+        <div id="sec-swell-controls">
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>2nd Height</span>
+              <strong id="val-sec-height">0.3 m</strong>
+            </div>
+            <input type="range" id="sec-height" min="0.1" max="3.0" step="0.1" value="0.3" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>2nd Period</span>
+              <strong id="val-sec-period">11 s</strong>
+            </div>
+            <input type="range" id="sec-period" min="5" max="18" step="0.5" value="11" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>2nd Angle</span>
+              <strong id="val-sec-dir">-24° (Cross)</strong>
+            </div>
+            <input type="range" id="sec-dir" min="-65" max="65" step="1" value="-24" />
+          </div>
+        </div>
+      </section>
+
+      <!-- Obstacle & Shore Reflection (PDE) -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Obstacle & Shore Reflection</span>
+          <span class="badge" id="interference-badge">2D PDE Active</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Shorebreak Backwash Reflectivity</span>
+            <strong id="val-backwash">0.45x</strong>
+          </div>
+          <input type="range" id="backwash-strength" min="0.0" max="2.0" step="0.05" value="0.45" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Jetty / Cliff Wall Reflectivity</span>
+            <strong id="val-sidewave-strength">0.85x</strong>
+          </div>
+          <input type="range" id="sidewave-strength" min="0.0" max="2.0" step="0.05" value="0.85" />
+        </div>
+      </section>
+
+      <!-- Wind Conditions -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Local Wind</span>
+          <span class="badge wind-badge" id="wind-regime-badge">Clean Offshore</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Wind Speed</span>
+            <strong id="val-wind-speed">12 kts</strong>
+          </div>
+          <input type="range" id="wind-speed" min="0" max="35" step="1" value="12" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Wind Angle (0°=Offshore, 180°=Onshore)</span>
+            <strong id="val-wind-dir">10° (Offshore)</strong>
+          </div>
+          <input type="range" id="wind-dir" min="-180" max="180" step="5" value="10" />
+        </div>
+      </section>
+
+      <!-- Tide & Lighting -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Tide & Sun Lighting</span>
+          <span class="badge" id="tide-stage-badge">Mid Tide</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Tide Height</span>
+            <strong id="val-tide">0.2 m (Mid)</strong>
+          </div>
+          <input type="range" id="tide-level" min="-1.5" max="2.2" step="0.1" value="0.2" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Sun Elevation (Time of Day)</span>
+            <strong id="val-sun-elevation">28° (Afternoon)</strong>
+          </div>
+          <input type="range" id="sun-elevation" min="4" max="75" step="1" value="28" />
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Right Panel: Terrain & Bathymetry Designer -->
+  <aside class="panel right-panel" id="terrain-panel">
+    <div class="panel-header">
+      <h2>Bathymetry & Reef Designer</h2>
+      <button class="collapse-btn" data-target="terrain-panel-body" title="Collapse Panel">−</button>
+    </div>
+
+    <div class="panel-body" id="terrain-panel-body">
+      <!-- Parametric Seabed Shaper -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Parametric Seabed Geometry</span>
+          <span class="badge subtle">Shoaling Profile</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Bottom Steepness (Slope)</span>
+            <strong id="val-seabed-slope">1.0x</strong>
+          </div>
+          <input type="range" id="seabed-slope" min="0.4" max="2.2" step="0.05" value="1.0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Reef / Sandbar Shallow Peak</span>
+            <strong id="val-reef-prominence">1.2x</strong>
+          </div>
+          <input type="range" id="reef-prominence" min="0.0" max="2.5" step="0.05" value="1.2" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Reef / Bar Angle (Peel Line)</span>
+            <strong id="val-reef-angle">0°</strong>
+          </div>
+          <input type="range" id="reef-angle" min="-45" max="45" step="1" value="0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Shoreline / Channel Cut</span>
+            <strong id="val-channel-depth">1.0x</strong>
+          </div>
+          <input type="range" id="channel-depth" min="0.0" max="2.0" step="0.1" value="1.0" />
+        </div>
+      </section>
+
+      <!-- Interactive 3D Sculpt Brush -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>3D Seabed Sculpting Brush</span>
+          <span class="badge" id="brush-status-badge">Orbit Mode</span>
+        </div>
+
+        <p class="helper-text">
+          Switch to a sculpting brush to raise shallow reefs/sandbars or carve deep channels directly in the 3D viewport.
+        </p>
+
+        <div class="brush-mode-grid">
+          <button class="brush-btn active" data-brush="none">🎥 Orbit Cam</button>
+          <button class="brush-btn" data-brush="raise">⛰️ Raise Reef/Bar</button>
+          <button class="brush-btn" data-brush="jetty">🪨 Build Jetty/Wall</button>
+          <button class="brush-btn" data-brush="lower">🕳️ Dig Channel</button>
+          <button class="brush-btn" data-brush="smooth">〰️ Smooth Terrain</button>
+        </div>
+
+        <div id="brush-settings" class="hidden-settings">
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Brush Radius</span>
+              <strong id="val-brush-radius">24 m</strong>
+            </div>
+            <input type="range" id="brush-radius" min="8" max="60" step="2" value="24" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Brush Strength</span>
+              <strong id="val-brush-strength">0.5</strong>
+            </div>
+            <input type="range" id="brush-strength" min="0.1" max="1.5" step="0.1" value="0.5" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="reset-terrain-btn" class="secondary-btn">↺ Reset Current Terrain</button>
+        </div>
+      </section>
+
+      <!-- Mini 2D Bathymetry Contour Preview -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Bathymetry Depth Map (Top-Down)</span>
+          <span class="badge subtle">Offshore ↑ / Shore ↓</span>
+        </div>
+        <div class="minimap-wrapper">
+          <canvas id="bathymetry-minimap" width="220" height="140"></canvas>
+          <div class="minimap-legend">
+            <span><i class="dot deep"></i>Deep (-18m)</span>
+            <span><i class="dot reef"></i>Reef (-1.5m)</span>
+            <span><i class="dot sand"></i>Dry Beach</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Bottom Telemetry & Surfability Analysis Bar -->
+  <footer class="telemetry-bar">
+    <div class="telemetry-card primary-rating">
+      <span class="telemetry-label">SURF QUALITY & BREAK TYPE</span>
+      <div class="telemetry-main" id="metric-break-type">Plunging / Hollow Barrel</div>
+      <div class="telemetry-sub" id="metric-surf-rating">★ 9.2/10 — World-Class Tube</div>
+    </div>
+
+    <div class="telemetry-card">
+      <span class="telemetry-label">BREAKING FACE HEIGHT</span>
+      <div class="telemetry-main" id="metric-face-height">2.9 m <small>(9.5 ft)</small></div>
+      <div class="telemetry-sub" id="metric-shoaling-factor">Shoaling Amp: 1.32x</div>
+    </div>
+
+    <div class="telemetry-card">
+      <span class="telemetry-label">IRIBARREN NUMBER (ξ<sub>b</sub>)</span>
+      <div class="telemetry-main" id="metric-iribarren">0.84</div>
+      <div class="telemetry-sub" id="metric-lip-pitch">Pitching Ratio: High</div>
+    </div>
+
+    <div class="telemetry-card">
+      <span class="telemetry-label">WAVELENGTH & SPEED</span>
+      <div class="telemetry-main" id="metric-wavelength">L<sub>0</sub>: 306 m</div>
+      <div class="telemetry-sub" id="metric-wave-speed">Break Speed: 6.4 m/s (12.4 kts)</div>
+    </div>
+
+    <div class="telemetry-card">
+      <span class="telemetry-label">PEEL ANGLE & RIDE</span>
+      <div class="telemetry-main" id="metric-peel-angle">46° Peel</div>
+      <div class="telemetry-sub" id="metric-peel-desc">Fast Makeable Pocket</div>
+    </div>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
