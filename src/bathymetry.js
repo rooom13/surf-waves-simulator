@@ -141,35 +141,37 @@ export class BathymetryManager {
         if (presetName === 'right_point') {
           // RIGHT POINT BREAK (e.g., Rincon / Malibu / Jeffreys Bay):
           // Surfer rides toward +z (shore), peeling to surfer's RIGHT (-x).
-          // High rocky headland promontory juts out on the +x side (x > +25, reaching z = -52),
+          // High rocky headland promontory juts out on the +x side (x > +32, reaching z = -46),
           // curving back into a recessed sandy bay beach on the -x side (shoreline at z = +66).
-          const shoreCurveZ = 66 - 118 * smoothstep(-30, 105, x) + Math.sin(x * 0.035) * 3.5;
+          const shoreCurveZ = 66 - 112 * smoothstep(-25, 110, x) + Math.sin(x * 0.035) * 3.5;
 
           // Progressive foreshore shoaling ramp leading up to the curving shoreline
-          const shoreRamp = 3.4 * smoothstep(shoreCurveZ - 52, shoreCurveZ - 6, z);
+          const shoreRamp = 3.4 * smoothstep(shoreCurveZ - 48, shoreCurveZ - 6, z);
           h += shoreRamp;
 
           // Above-water headland cliff & curving bay beach
           if (z > shoreCurveZ - 16) {
             const landProgress = smoothstep(shoreCurveZ - 14, shoreCurveZ + 42, z);
-            const isHeadland = smoothstep(-5, 68, x);
+            const isHeadland = smoothstep(2, 72, x);
             const landElev = landProgress * (5.2 + 14.0 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
             if (z > shoreCurveZ - 2) isAboveWaterStructure = true;
             h = Math.max(h, -1.4 + landElev);
           }
 
-          // Submerged diagonal cobblestone point bar wrapping off the headland from (x=+60, z=-48) to (x=-45, z=+48)
-          const barAxisZ = -45 + (60 - rx) * 0.85;
+          // Submerged diagonal cobblestone/reef point bar extended further out off the shore/cliff
+          // Spans from outer take-off peak (x=+50, z=-78) down along the peeling wall to (x=-65, z=+25),
+          // keeping the breaking wave ~25-35m safely offshore away from the rocky headland cliff!
+          const barAxisZ = -70 + (48 - rx) * 0.88;
           const distFromBar = rz - barAxisZ;
-          const barWidth = distFromBar < 0 ? 18.0 : 32.0;
+          const barWidth = distFromBar < 0 ? 22.0 : 34.0;
           const pointBarMask =
             Math.exp(-(distFromBar * distFromBar) / (2 * barWidth * barWidth)) *
-            smoothstep(-70, 0, x) *
-            smoothstep(125, 40, x);
+            smoothstep(-80, -10, x) *
+            smoothstep(125, 30, x);
 
-          const barRise = 4.8 * reefProminence * pointBarMask;
-          // Deeper bay shoulder on the outside (-x) so the wave has a clean unbroken green wall next to the pocket
-          const bayChannel = -2.8 * channelDepth * smoothstep(25, -45, x) * smoothstep(52, -45, z);
+          const barRise = 5.2 * reefProminence * pointBarMask;
+          // Deeper bay shoulder & channel on the outside (-x) so the wave has a clean, wide open face
+          const bayChannel = -2.8 * channelDepth * smoothstep(18, -55, x) * smoothstep(42, -65, z);
 
           if (!isAboveWaterStructure) {
             h += barRise + bayChannel + fineNoise * 0.5;

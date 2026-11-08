@@ -463,11 +463,11 @@ function applyCameraPreset(cameraMode) {
     camera.position.set(54 * sideSign, -4.2, 46);
     controls.target.set(-8 * sideSign, -2.2, -5);
   } else if (cameraMode === 'lineup') {
-    camera.position.set(42 * sideSign, 6.2, 34);
-    controls.target.set(-16 * sideSign, 1.2, -14);
+    camera.position.set(38 * sideSign, 6.2, 18);
+    controls.target.set(-18 * sideSign, 1.2, -32);
   } else if (cameraMode === 'barrel') {
-    camera.position.set(16 * sideSign, 2.3, 14);
-    controls.target.set(-20 * sideSign, 1.3, -14);
+    camera.position.set(12 * sideSign, 2.3, -4);
+    controls.target.set(-22 * sideSign, 1.3, -32);
   } else if (cameraMode === 'cliff') {
     camera.position.set(-95 * sideSign, 26, 45);
     controls.target.set(5 * sideSign, 0, -5);
