@@ -874,4 +874,6 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+window.__debug = { camera, controls, surferPov, oceanParams, waveSolver, btyManager, scene };
+
 animate();

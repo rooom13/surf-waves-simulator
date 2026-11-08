@@ -263,6 +263,7 @@ export class SurferPovController {
         dispZ,
         surfaceY,
         eta: s0.eta,
+        seabed: s0.seabed,
         gradX,
         gradZ,
         bTube,
