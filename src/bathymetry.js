@@ -134,102 +134,112 @@ export class BathymetryManager {
         const rockNoise = fbm(x * 0.03, z * 0.03, 3);
         const fineNoise = fbm(x * 0.07, z * 0.07, 2) * 0.25;
 
-        // Default deep ocean to coastal base depth (-15m offshore to -6.5m nearshore before shoals/beach)
-        let h = -15.5 * Math.pow(1.0 - normZ, 1.05 * seabedSlope) - 5.2;
+        // Base coastal shelf profile: -13.5m offshore (z=-150) shoaling smoothly to -2.2m nearshore (z=+75)
+        let h = -11.8 * Math.pow(1.0 - normZ, 1.15 * seabedSlope) - 1.6;
         let isAboveWaterStructure = false;
 
         if (presetName === 'right_point') {
           // RIGHT POINT BREAK (e.g., Rincon / Malibu / Jeffreys Bay):
           // Surfer rides toward +z (shore), peeling to surfer's RIGHT (-x).
-          // High rocky headland promontory juts out on the +x side (x > +25, reaching z = -45),
-          // curving back into a recessed sandy bay on the -x side (shoreline at z = +105).
-          const shoreCurveZ = 102 - 142 * smoothstep(-35, 115, x) + Math.sin(x * 0.035) * 4.0;
+          // High rocky headland promontory juts out on the +x side (x > +25, reaching z = -52),
+          // curving back into a recessed sandy bay beach on the -x side (shoreline at z = +66).
+          const shoreCurveZ = 66 - 118 * smoothstep(-30, 105, x) + Math.sin(x * 0.035) * 3.5;
+
+          // Progressive foreshore shoaling ramp leading up to the curving shoreline
+          const shoreRamp = 3.4 * smoothstep(shoreCurveZ - 52, shoreCurveZ - 6, z);
+          h += shoreRamp;
 
           // Above-water headland cliff & curving bay beach
-          if (z > shoreCurveZ - 18) {
-            const landProgress = smoothstep(shoreCurveZ - 16, shoreCurveZ + 45, z);
-            const isHeadland = smoothstep(-10, 75, x);
-            const landElev = landProgress * (4.5 + 14.0 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
-            if (z > shoreCurveZ) isAboveWaterStructure = true;
-            h = Math.max(h, -4.5 + landElev);
+          if (z > shoreCurveZ - 16) {
+            const landProgress = smoothstep(shoreCurveZ - 14, shoreCurveZ + 42, z);
+            const isHeadland = smoothstep(-5, 68, x);
+            const landElev = landProgress * (5.2 + 14.0 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
+            if (z > shoreCurveZ - 2) isAboveWaterStructure = true;
+            h = Math.max(h, -1.4 + landElev);
           }
 
-          // Submerged diagonal cobblestone point bar wrapping off the headland from (x=+70, z=-35) to (x=-45, z=+45)
-          const barAxisZ = -32 + (70 - rx) * 0.64;
+          // Submerged diagonal cobblestone point bar wrapping off the headland from (x=+60, z=-48) to (x=-45, z=+48)
+          const barAxisZ = -45 + (60 - rx) * 0.85;
           const distFromBar = rz - barAxisZ;
+          const barWidth = distFromBar < 0 ? 18.0 : 32.0;
           const pointBarMask =
-            Math.exp(-(distFromBar * distFromBar) / (2 * 26 * 26)) *
-            smoothstep(-75, 15, x) *
-            smoothstep(130, 40, x);
+            Math.exp(-(distFromBar * distFromBar) / (2 * barWidth * barWidth)) *
+            smoothstep(-70, 0, x) *
+            smoothstep(125, 40, x);
 
-          const barRise = 5.4 * reefProminence * pointBarMask;
-          // Deep bay channel on the inside (-x < -25) so the wave peels into deep water and doesn't close out
-          const bayChannel = -3.2 * channelDepth * smoothstep(10, -70, x) * smoothstep(85, -50, z);
+          const barRise = 4.8 * reefProminence * pointBarMask;
+          // Deeper bay shoulder on the outside (-x) so the wave has a clean unbroken green wall next to the pocket
+          const bayChannel = -2.8 * channelDepth * smoothstep(25, -45, x) * smoothstep(52, -45, z);
 
           if (!isAboveWaterStructure) {
-            h += barRise + bayChannel + fineNoise;
-            h = softCapUnderwater(h, -1.75);
+            h += barRise + bayChannel + fineNoise * 0.5;
+            h = softCapUnderwater(h, -1.15);
           }
         } else if (presetName === 'left_point') {
           // LEFT POINT BREAK (e.g., Raglan / Chicama / Mundaka):
           // Surfer rides toward +z (shore), peeling to surfer's LEFT (+x).
-          // Rugged headland cliff juts out on the -x side (x < -25, reaching z = -45),
-          // curving back into a recessed sandy bay on the +x side (shoreline at z = +105).
-          const shoreCurveZ = 102 - 142 * smoothstep(35, -115, x) + Math.sin(x * 0.035) * 4.0;
+          const shoreCurveZ = 66 - 118 * smoothstep(30, -105, x) + Math.sin(x * 0.035) * 3.5;
 
-          if (z > shoreCurveZ - 18) {
-            const landProgress = smoothstep(shoreCurveZ - 16, shoreCurveZ + 45, z);
-            const isHeadland = smoothstep(10, -75, x);
-            const landElev = landProgress * (4.5 + 14.5 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
-            if (z > shoreCurveZ) isAboveWaterStructure = true;
-            h = Math.max(h, -4.5 + landElev);
+          const shoreRamp = 3.4 * smoothstep(shoreCurveZ - 52, shoreCurveZ - 6, z);
+          h += shoreRamp;
+
+          if (z > shoreCurveZ - 16) {
+            const landProgress = smoothstep(shoreCurveZ - 14, shoreCurveZ + 42, z);
+            const isHeadland = smoothstep(5, -68, x);
+            const landElev = landProgress * (5.2 + 14.5 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
+            if (z > shoreCurveZ - 2) isAboveWaterStructure = true;
+            h = Math.max(h, -1.4 + landElev);
           }
 
-          // Submerged diagonal cobblestone/reef point shelf wrapping from (x=-70, z=-35) to (x=+45, z=+45)
-          const barAxisZ = -32 + (70 + rx) * 0.64;
+          // Submerged diagonal cobblestone/reef point shelf wrapping from (x=-60, z=-48) to (x=+45, z=+48)
+          const barAxisZ = -45 + (60 + rx) * 0.85;
           const distFromBar = rz - barAxisZ;
+          const barWidth = distFromBar < 0 ? 18.0 : 32.0;
           const pointBarMask =
-            Math.exp(-(distFromBar * distFromBar) / (2 * 26 * 26)) *
-            smoothstep(75, -15, x) *
-            smoothstep(-130, -40, x);
+            Math.exp(-(distFromBar * distFromBar) / (2 * barWidth * barWidth)) *
+            smoothstep(70, 0, x) *
+            smoothstep(-125, -40, x);
 
-          const barRise = 5.4 * reefProminence * pointBarMask;
-          const bayChannel = -3.2 * channelDepth * smoothstep(-10, 70, x) * smoothstep(85, -50, z);
+          const barRise = 4.8 * reefProminence * pointBarMask;
+          const bayChannel = -2.8 * channelDepth * smoothstep(-25, 45, x) * smoothstep(52, -45, z);
 
           if (!isAboveWaterStructure) {
-            h += barRise + bayChannel + fineNoise;
-            h = softCapUnderwater(h, -1.75);
+            h += barRise + bayChannel + fineNoise * 0.5;
+            h = softCapUnderwater(h, -1.15);
           }
         } else if (presetName === 'jetty_wedge') {
           // ROCK JETTY & SANDBAR WEDGE (e.g., Newport Wedge / Sebastian Inlet):
-          // Angled boulder rock jetty extending from offshore (x = -74, z = -55) to the beach (x = -18, z = +92)
-          // so its +x face directly catches incoming swells and reflects a real sideways wave across the surf zone!
+          // Angled boulder rock jetty extending from offshore (x = -74, z = -55) to the beach (x = -18, z = +68)
           const jettyCenterX = -52 + (z + 5) * 0.36;
           const distToJetty = Math.abs(x - jettyCenterX);
           const onJettyLength = smoothstep(-62, -48, z) * smoothstep(135, 105, z);
 
-          // Triangular sandbar fillet accumulated on the surf side (+x side) of the jetty
+          // Diagonal sandbar wedge accumulated on the surf side (+x side) of the jetty from z=-42 to z=+55
           const distFromJettyRight = x - jettyCenterX;
+          const wedgeBarZ = -38 + distFromJettyRight * 0.72;
+          const zFromWedge = z - wedgeBarZ;
+          const barWidth = zFromWedge < 0 ? 20.0 : 34.0;
           const filletEnvelope =
-            smoothstep(-2, 16, distFromJettyRight) *
+            smoothstep(-2, 10, distFromJettyRight) *
             Math.exp(-(distFromJettyRight * distFromJettyRight) / (2 * 56 * 56)) *
-            Math.exp(-((z - 8) * (z - 8)) / (2 * 36 * 36));
+            Math.exp(-(zFromWedge * zFromWedge) / (2 * barWidth * barWidth));
 
-          const sandFillet = 5.4 * reefProminence * filletEnvelope;
+          const sandFillet = 7.4 * reefProminence * filletEnvelope;
 
           // Calm harbor channel on the sheltered lee side (-x side) behind the jetty
-          const harborChannel = -5.0 * channelDepth * smoothstep(jettyCenterX + 4, jettyCenterX - 22, x);
+          const harborChannel = -4.2 * channelDepth * smoothstep(jettyCenterX + 4, jettyCenterX - 22, x);
 
           // Steep reflective sandy shorebreak on the surf side (x > jettyCenterX)
-          const beachShoreZ = 82 - 12 * Math.exp(-(distFromJettyRight * distFromJettyRight) / (2 * 48 * 48));
+          const beachShoreZ = 64 - 10 * Math.exp(-(distFromJettyRight * distFromJettyRight) / (2 * 48 * 48));
+          const shoreRamp = 3.2 * smoothstep(beachShoreZ - 48, beachShoreZ - 8, z) * smoothstep(jettyCenterX - 4, jettyCenterX + 6, x);
           const beachRise =
-            10.5 *
-            smoothstep(beachShoreZ - 20, beachShoreZ + 42, z) *
+            9.5 *
+            smoothstep(beachShoreZ - 14, beachShoreZ + 38, z) *
             smoothstep(jettyCenterX - 2, jettyCenterX + 8, x);
 
-          h += sandFillet + harborChannel + fineNoise;
-          if (z < beachShoreZ - 4) {
-            h = softCapUnderwater(h, -1.75);
+          h += sandFillet + harborChannel + shoreRamp + fineNoise * 0.5;
+          if (z < beachShoreZ - 8) {
+            h = softCapUnderwater(h, -1.15);
           }
           h += beachRise;
 
@@ -237,7 +247,7 @@ export class BathymetryManager {
           if (distToJetty < 11.5 && onJettyLength > 0.05) {
             const jettyProfile = smoothstep(11.0, 4.2, distToJetty) * onJettyLength;
             const boulderRugosity = Math.abs(rockNoise) * 1.4;
-            const jettyElev = -4.0 + (9.2 + boulderRugosity) * jettyProfile;
+            const jettyElev = -3.0 + (8.2 + boulderRugosity) * jettyProfile;
             if (jettyElev > h) {
               h = jettyElev;
               if (h > -0.4) isAboveWaterStructure = true;
@@ -245,102 +255,108 @@ export class BathymetryManager {
           }
         } else if (presetName === 'reef_pass') {
           // BARRIER REEF PASS & DEEP CHANNEL (e.g., Teahupo'o / Cloudbreak / Pipeline):
-          // Deep submarine canyon / pass channel on the center-left (x in [-85, -15], depth -14m)
-          // next to an abrupt, shallow flat coral reef shelf on the right (x in [-10, +95], depth -1.75m)
-          // with a deep turquoise lagoon behind the reef (z in [+28, +85]) and island beach at z > +105.
+          // Deep submarine canyon / pass channel on the left (x in [-95, -15], depth -11m)
+          // next to an abrupt, shallow diagonal coral reef shelf on the right (x in [-5, +95], depth -1.25m)
           const passChannelMask =
-            smoothstep(5, -35, x) *
+            smoothstep(12, -25, x) *
             smoothstep(-115, -75, x) *
-            smoothstep(65, -90, z);
+            smoothstep(58, -90, z);
 
-          // Angled barrier reef shelf edge facing the deep pass
-          const reefFrontZ = -26 + Math.max(0, 45 - rx) * 0.38;
+          // Diagonal barrier reef shelf edge starting at (x=+70, z=-48) and peeling left toward the pass (x=-5, z=+22)
+          const reefFrontZ = -46 + Math.max(0, 70 - rx) * 0.68;
           const onReefShelf =
-            smoothstep(reefFrontZ - 16, reefFrontZ + 6, rz) *
-            smoothstep(38, 14, rz) *
-            smoothstep(-22, 12, rx) *
-            smoothstep(115, 75, rx);
+            smoothstep(reefFrontZ - 14, reefFrontZ + 6, rz) *
+            smoothstep(48, 18, rz) *
+            smoothstep(-12, 12, rx) *
+            smoothstep(120, 80, rx);
 
-          const reefTable = 6.2 * reefProminence * onReefShelf + Math.abs(fineNoise) * 0.6 * onReefShelf;
-          const deepPassCut = -5.5 * channelDepth * passChannelMask;
-          // Calm deeper lagoon behind the barrier reef before the island shore
-          const lagoon = -1.8 * smoothstep(25, 48, z) * smoothstep(95, 65, z);
-          const islandShore = 10.5 * smoothstep(88, 148, z);
+          const reefTable = 7.6 * reefProminence * onReefShelf + Math.abs(fineNoise) * 0.45 * onReefShelf;
+          const deepPassCut = -4.2 * channelDepth * passChannelMask;
+          const islandRamp = 3.2 * smoothstep(22, 64, z);
+          const islandShore = 9.5 * smoothstep(64, 135, z);
 
-          h += reefTable + deepPassCut + lagoon;
-          if (z < 88) {
-            h = softCapUnderwater(h, -1.70);
+          h += reefTable + deepPassCut + islandRamp;
+          if (z < 64) {
+            h = softCapUnderwater(h, -1.15);
           }
           h += islandShore;
         } else if (presetName === 'aframe_reef') {
           // A-FRAME REEF PEAK (e.g., Lower Trestles / Uluwatu Peak):
-          // Prominent V-shaped submerged reef ridge at x = 0 pointing offshore (z = -30),
-          // flanked by deep channels on both sides (|x| > 55).
+          // Prominent V-shaped submerged reef ridge at x = 0 pointing offshore (z = -46),
+          // peeling both LEFT (+x) and RIGHT (-x) into deeper channels on both sides (|x| > 55).
           const distFromApex = Math.abs(rx);
-          const reefZCenter = -24 + distFromApex * 0.56;
+          const reefZCenter = -44 + distFromApex * 0.85;
           const zDiff = rz - reefZCenter;
+          const barWidth = zDiff < 0 ? 18.0 : 32.0;
           const reefEnvelope =
-            Math.exp(-(zDiff * zDiff) / (2 * 22 * 22)) *
-            Math.exp(-(distFromApex * distFromApex) / (2 * 56 * 56));
+            Math.exp(-(zDiff * zDiff) / (2 * barWidth * barWidth)) *
+            Math.exp(-(distFromApex * distFromApex) / (2 * 52 * 52));
 
-          const reefHeight = 5.8 * reefProminence * reefEnvelope;
-          const channelCut = -3.4 * channelDepth * smoothstep(32, 85, Math.abs(x));
-          const beachRise = 10.0 * smoothstep(72, 145, z);
+          const reefHeight = 7.5 * reefProminence * reefEnvelope;
+          const channelCut = -3.0 * channelDepth * smoothstep(30, 82, Math.abs(x));
+          const shoreRamp = 3.2 * smoothstep(18, 62, z);
+          const beachRise = 9.5 * smoothstep(62, 135, z);
 
-          h += reefHeight + channelCut + fineNoise;
-          if (z < 72) {
-            h = softCapUnderwater(h, -1.75);
+          h += reefHeight + channelCut + shoreRamp + fineNoise * 0.5;
+          if (z < 62) {
+            h = softCapUnderwater(h, -1.15);
           }
           h += beachRise;
         } else if (presetName === 'beach_break') {
           // BEACH BREAK — CRESCENT SANDBARS & RIP CHANNELS (e.g., Hossegor / Supertubos):
-          // Two shallow crescent sandbar banks centered at x = -52 and x = +52,
-          // separated by a deep central rip-current channel at x = 0 and an inside reform trough at z = +42.
-          const leftBarDist = Math.hypot((rx + 52) * 0.85, rz - (-8 + Math.cos((rx + 52) * 0.05) * 8));
-          const rightBarDist = Math.hypot((rx - 52) * 0.85, rz - (-8 + Math.cos((rx - 52) * 0.05) * 8));
+          // Two shallow V-shaped sandbar banks centered at x = -48 and x = +48 starting at z = -36,
+          // separated by a deep central rip-current channel at x = 0.
+          const leftApexDist = Math.abs(rx + 48);
+          const leftBarZ = -34 + leftApexDist * 0.80;
+          const leftZDiff = rz - leftBarZ;
+
+          const rightApexDist = Math.abs(rx - 48);
+          const rightBarZ = -34 + rightApexDist * 0.80;
+          const rightZDiff = rz - rightBarZ;
 
           const sandbars =
-            5.6 *
+            7.2 *
             reefProminence *
-            (Math.exp(-(leftBarDist * leftBarDist) / (2 * 28 * 28)) +
-              Math.exp(-(rightBarDist * rightBarDist) / (2 * 28 * 28)));
+            (Math.exp(-(leftZDiff * leftZDiff) / (2 * 24 * 24)) * Math.exp(-(leftApexDist * leftApexDist) / (2 * 36 * 36)) +
+              Math.exp(-(rightZDiff * rightZDiff) / (2 * 24 * 24)) * Math.exp(-(rightApexDist * rightApexDist) / (2 * 36 * 36)));
 
           // Deep central rip current channel scoured out at x = 0
-          const centralRip = -3.5 * channelDepth * Math.exp(-(x * x) / (2 * 20 * 20)) * smoothstep(65, -45, z);
-          // Inside reform trough between outer sandbars and steep beach shorebreak
-          const reformTrough = -2.2 * Math.exp(-((z - 40) * (z - 40)) / (2 * 16 * 16));
-          const beachDunes = 10.5 * smoothstep(68, 145, z) + rockNoise * 0.8 * smoothstep(85, 145, z);
+          const centralRip = -3.2 * channelDepth * Math.exp(-(x * x) / (2 * 18 * 18)) * smoothstep(55, -45, z);
+          const shoreRamp = 3.2 * smoothstep(12, 60, z);
+          const beachDunes = 9.8 * smoothstep(60, 135, z) + rockNoise * 0.8 * smoothstep(75, 135, z);
 
-          h += sandbars + centralRip + reformTrough + fineNoise * 0.6;
-          if (z < 68) {
-            h = softCapUnderwater(h, -1.75);
+          h += sandbars + centralRip + shoreRamp + fineNoise * 0.5;
+          if (z < 60) {
+            h = softCapUnderwater(h, -1.15);
           }
           h += beachDunes;
         } else if (presetName === 'rivermouth') {
           // RIVER MOUTH ESTUARY & DELTA SANDBAR (e.g., Mundaka / Rivermouth):
-          // A river channel cuts through the coastal bluffs around x = -45, scouring a deep outflow channel
-          // and depositing a long curved cobblestone/sand delta bar across x in [-20, +85].
+          // A river channel cuts through the coastal bluffs around x = -48, scouring a deep outflow channel
+          // and depositing a long diagonal cobblestone/sand delta bar from (x=-10, z=-44) to (x=+70, z=+48).
           const riverPathX = -48 + Math.sin(z * 0.03) * 10.0;
           const distToRiver = Math.abs(x - riverPathX);
-          const riverChannelCut = -6.8 * channelDepth * Math.exp(-(distToRiver * distToRiver) / (2 * 18 * 18));
+          const riverChannelCut = -5.2 * channelDepth * Math.exp(-(distToRiver * distToRiver) / (2 * 18 * 18));
 
-          // Curved offshore delta sandbar deposited to the right of the river outflow
-          const barCurveZ = -22 + (rx - 15) * 0.45 + Math.pow((rx - 15) * 0.02, 2) * 12.0;
+          // Diagonal offshore delta sandbar deposited to the right of the river outflow
+          const barCurveZ = -42 + Math.max(0, rx + 10) * 0.85;
           const distToDeltaBar = rz - barCurveZ;
+          const barWidth = distToDeltaBar < 0 ? 18.0 : 32.0;
           const deltaBar =
-            5.8 *
+            7.4 *
             reefProminence *
-            Math.exp(-(distToDeltaBar * distToDeltaBar) / (2 * 24 * 24)) *
-            smoothstep(-25, 10, x) *
-            smoothstep(115, 65, x);
+            Math.exp(-(distToDeltaBar * distToDeltaBar) / (2 * barWidth * barWidth)) *
+            smoothstep(-22, 5, x) *
+            smoothstep(110, 60, x);
 
           // Coastal bluffs on either side of the river estuary mouth
           const bluffMask = smoothstep(16, 36, distToRiver);
-          const shoreRise = (11.5 * bluffMask + 2.2 * (1.0 - bluffMask)) * smoothstep(65, 142, z);
+          const shoreRamp = 3.0 * smoothstep(12, 58, z) * bluffMask;
+          const shoreRise = (10.5 * bluffMask + 1.8 * (1.0 - bluffMask)) * smoothstep(58, 135, z);
 
-          h += deltaBar + riverChannelCut + fineNoise;
-          if (z < 65 || distToRiver < 20) {
-            h = softCapUnderwater(h, -1.75);
+          h += deltaBar + riverChannelCut + shoreRamp + fineNoise * 0.5;
+          if (z < 58 || distToRiver < 20) {
+            h = softCapUnderwater(h, -1.15);
           }
           if (distToRiver >= 20) {
             h += shoreRise;

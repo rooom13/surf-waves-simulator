@@ -5,6 +5,8 @@ import { HydroWaveSolver } from './waveSolver.js';
 import { createOceanMaterial } from './waveShader.js';
 import { evaluateSurfTelemetry } from './wavePhysics.js';
 import { SprayParticleSystem } from './spraySystem.js';
+import { BeachCrowdSystem } from './crowdSystem.js';
+import { SurferPovController } from './surferPov.js';
 
 // --- Scene, Camera & Renderer Setup ---
 const container = document.getElementById('canvas-container');
@@ -13,7 +15,7 @@ scene.background = new THREE.Color(0x0b1d30);
 scene.fog = new THREE.FogExp2(0x1b3b58, 0.0014);
 
 const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.4, 1500);
-camera.position.set(-72, 34, 88);
+camera.position.set(-76, 38, 104);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -25,7 +27,7 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(0, 0, 5);
+controls.target.set(8, 0, 8);
 controls.minPolarAngle = 0.02;
 controls.maxPolarAngle = Math.PI * 0.96; // Allow tilting & orbiting underwater to inspect seabed structure
 controls.minDistance = 3;
@@ -33,7 +35,7 @@ controls.maxDistance = 380;
 controls.screenSpacePanning = true;
 controls.panSpeed = 1.35;
 controls.mouseButtons = {
-  LEFT: THREE.MOUSE.ROTATE,
+  LEFT: null, // Left-drag is handled below as Minecraft-style free-look from the camera's own position
   MIDDLE: THREE.MOUSE.PAN, // Mousewheel click & drag moves the camera in screen space
   RIGHT: THREE.MOUSE.PAN,
 };
@@ -100,15 +102,17 @@ scene.add(skyDome);
 const btyManager = new BathymetryManager(scene);
 const waveSolver = new HydroWaveSolver(btyManager);
 
-const OCEAN_SEGMENTS = 240;
+const OCEAN_SEGMENTS = 300;
 const oceanGeom = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, OCEAN_SEGMENTS, OCEAN_SEGMENTS);
 oceanGeom.rotateX(-Math.PI / 2);
 const oceanMat = createOceanMaterial(btyManager.texture, waveSolver.simTexture);
 const oceanMesh = new THREE.Mesh(oceanGeom, oceanMat);
+oceanMesh.renderOrder = 1;
 scene.add(oceanMesh);
 
-// --- Offshore Spray Particle System ---
+// --- Offshore Spray Particle System & Inland Beach Crowd Scale Reference ---
 const spraySystem = new SprayParticleSystem(scene);
+const crowdSystem = new BeachCrowdSystem(scene);
 
 // --- 3D Sculpting Brush Cursor Ring ---
 const ringGeom = new THREE.RingGeometry(0.92, 1.0, 48);
@@ -129,7 +133,7 @@ const oceanParams = {
   swellHeight: 2.2,
   swellPeriod: 14.0,
   swellDir: 0.0,
-  swellGrouping: 45.0,
+  swellGrouping: 65.0,
   wavesPerSet: 6.0,
   secEnabled: true,
   secHeight: 0.3,
@@ -142,6 +146,7 @@ const oceanParams = {
   windDir: 10.0,
   tideLevel: 0.2,
   sunElevation: 28.0,
+  timeScale: 1.0,
 };
 
 const brushState = {
@@ -231,20 +236,36 @@ function syncUIAndTelemetry() {
   if (valWavesPerSet) {
     valWavesPerSet.textContent = `${t.wavesPerSet} waves (${t.setPeriodSec} s Set)`;
   }
-  const metricSetPeriod = document.getElementById('metric-set-period');
-  if (metricSetPeriod) {
-    metricSetPeriod.textContent = `${t.setPeriodSec} s Cycle`;
-  }
-  const metricSetLull = document.getElementById('metric-set-lull');
-  if (metricSetLull) {
-    if (oceanParams.swellGrouping <= 5) {
-      metricSetLull.textContent = 'Continuous Train (0 s Lull)';
-    } else {
-      metricSetLull.textContent = `~${t.setWavesCount} Waves/Set • ${t.lullWaitSec} s Lull`;
-    }
-  }
+  updateSetCountdownUI(t);
 
   btyManager.renderMinimap(minimapCanvas, oceanParams.tideLevel, oceanParams.swellDir);
+}
+
+let lastCountdownKey = '';
+function updateSetCountdownUI(cachedTelemetry) {
+  const metricSetPeriod = document.getElementById('metric-set-period');
+  const metricSetLull = document.getElementById('metric-set-lull');
+  if (!metricSetPeriod || !metricSetLull) return;
+
+  const status = waveSolver.getSetCountdown(oceanParams);
+  const key = `${status.isContinuous}-${status.isSetActive}-${status.secondsRemaining}-${status.setCycleSec}`;
+  if (key === lastCountdownKey && !cachedTelemetry) return;
+  lastCountdownKey = key;
+
+  const setWavesCount = Math.max(2, Math.round((oceanParams.wavesPerSet ?? 6) * 0.48));
+  if (status.isContinuous) {
+    metricSetPeriod.textContent = 'Continuous Train';
+    metricSetPeriod.style.color = '#f8fafc';
+    metricSetLull.textContent = `0 s Lull • ${status.setCycleSec} s Cycle`;
+  } else if (status.isSetActive) {
+    metricSetPeriod.textContent = `Set Active (${status.secondsRemaining} s)`;
+    metricSetPeriod.style.color = '#38bdf8';
+    metricSetLull.textContent = `Pumping Now • ~${setWavesCount} Waves/Set (${status.setCycleSec} s)`;
+  } else {
+    metricSetPeriod.textContent = `Next Set in ${status.secondsRemaining} s`;
+    metricSetPeriod.style.color = '#fbbf24';
+    metricSetLull.textContent = `In Lull • ${status.setCycleSec} s Cycle (~${setWavesCount} Waves/Set)`;
+  }
 }
 
 function bindSlider(id, valId, paramObj, key, formatter, onChange) {
@@ -293,7 +314,11 @@ bindSlider(
   oceanParams,
   'swellGrouping',
   (v) => `${v}%`,
-  syncUIAndTelemetry
+  () => {
+    waveSolver.warmup(oceanParams, 300);
+    spraySystem.warmup(oceanParams, waveSolver, 45);
+    syncUIAndTelemetry();
+  }
 );
 
 bindSlider(
@@ -352,7 +377,10 @@ bindSlider(
   oceanParams,
   'tideLevel',
   (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} m (${v < -0.5 ? 'Low' : v > 0.8 ? 'High' : 'Mid'})`,
-  syncUIAndTelemetry
+  () => {
+    crowdSystem.populate(btyManager, oceanParams.tideLevel);
+    syncUIAndTelemetry();
+  }
 );
 
 bindSlider(
@@ -373,6 +401,7 @@ bindSlider(
   (v) => `${v.toFixed(2)}x`,
   () => {
     btyManager.generatePreset(btyManager.preset);
+    crowdSystem.populate(btyManager, oceanParams.tideLevel);
     syncUIAndTelemetry();
   }
 );
@@ -385,6 +414,7 @@ bindSlider(
   (v) => `${v.toFixed(2)}x`,
   () => {
     btyManager.generatePreset(btyManager.preset);
+    crowdSystem.populate(btyManager, oceanParams.tideLevel);
     syncUIAndTelemetry();
   }
 );
@@ -397,6 +427,7 @@ bindSlider(
   (v) => `${v}°`,
   () => {
     btyManager.generatePreset(btyManager.preset);
+    crowdSystem.populate(btyManager, oceanParams.tideLevel);
     syncUIAndTelemetry();
   }
 );
@@ -409,15 +440,49 @@ bindSlider(
   (v) => `${v.toFixed(1)}x`,
   () => {
     btyManager.generatePreset(btyManager.preset);
+    crowdSystem.populate(btyManager, oceanParams.tideLevel);
     syncUIAndTelemetry();
   }
 );
+
+function applyCameraPreset(cameraMode) {
+  if (cameraMode === 'surf_pov') {
+    enterSurfPov();
+    return;
+  }
+  if (surferPov.active) exitSurfPov(false);
+
+  const preset = btyManager.preset;
+  // Place shoulder camera on the open surf side (+x for left_point/jetty_wedge/rivermouth, -x for right_point/reef_pass)
+  const sideSign = preset === 'left_point' || preset === 'jetty_wedge' || preset === 'rivermouth' ? 1 : -1;
+
+  if (cameraMode === 'overview') {
+    camera.position.set(76 * sideSign, 38, 104);
+    controls.target.set(-8 * sideSign, 0, 8);
+  } else if (cameraMode === 'underwater') {
+    camera.position.set(54 * sideSign, -4.2, 46);
+    controls.target.set(-8 * sideSign, -2.2, -5);
+  } else if (cameraMode === 'lineup') {
+    camera.position.set(42 * sideSign, 6.2, 34);
+    controls.target.set(-16 * sideSign, 1.2, -14);
+  } else if (cameraMode === 'barrel') {
+    camera.position.set(16 * sideSign, 2.3, 14);
+    controls.target.set(-20 * sideSign, 1.3, -14);
+  } else if (cameraMode === 'cliff') {
+    camera.position.set(-95 * sideSign, 26, 45);
+    controls.target.set(5 * sideSign, 0, -5);
+  } else if (cameraMode === 'topdown') {
+    camera.position.set(0, 215, 18);
+    controls.target.set(0, 0, 0);
+  }
+}
 
 // Preset Selector
 document.getElementById('preset-select').addEventListener('change', (e) => {
   const preset = e.target.value;
   btyManager.sculptOffset.fill(0);
   btyManager.generatePreset(preset);
+  applyCameraPreset(document.getElementById('camera-select').value);
 
   const presetInterference = {
     right_point: { bw: 0.35, sw: 0.75 },
@@ -442,7 +507,9 @@ document.getElementById('preset-select').addEventListener('change', (e) => {
     document.getElementById('val-sidewave-strength').textContent = `${presetInterference.sw.toFixed(2)}x`;
   }
 
-  waveSolver.warmup(oceanParams, 220);
+  waveSolver.warmup(oceanParams, 300);
+  spraySystem.warmup(oceanParams, waveSolver, 45);
+  crowdSystem.populate(btyManager, oceanParams.tideLevel);
   syncUIAndTelemetry();
 });
 
@@ -458,27 +525,17 @@ document.getElementById('viz-select').addEventListener('change', (e) => {
 
 // Camera Preset Selector
 document.getElementById('camera-select').addEventListener('change', (e) => {
-  const cameraMode = e.target.value;
-  if (cameraMode === 'overview') {
-    camera.position.set(-72, 34, 88);
-    controls.target.set(0, 0, 5);
-  } else if (cameraMode === 'underwater') {
-    camera.position.set(-54, -4.2, 46);
-    controls.target.set(8, -2.2, -5);
-  } else if (cameraMode === 'lineup') {
-    camera.position.set(-56, 3.6, 18);
-    controls.target.set(6, 1.2, -6);
-  } else if (cameraMode === 'barrel') {
-    camera.position.set(-22, 1.8, 2);
-    controls.target.set(12, 1.4, -4);
-  } else if (cameraMode === 'cliff') {
-    camera.position.set(-105, 26, 55);
-    controls.target.set(10, 0, -5);
-  } else if (cameraMode === 'topdown') {
-    camera.position.set(0, 215, 18);
-    controls.target.set(0, 0, 0);
-  }
+  applyCameraPreset(e.target.value);
 });
+
+// Simulation Speed Selector (0.25x Slow-Mo to 4.0x Fast-Forward, default 1.0x Real-Time)
+const speedSelect = document.getElementById('speed-select');
+if (speedSelect) {
+  speedSelect.addEventListener('change', (e) => {
+    oceanParams.timeScale = parseFloat(e.target.value) || 1.0;
+    updateSetCountdownUI(true);
+  });
+}
 
 // Pause Button
 const pauseBtn = document.getElementById('pause-btn');
@@ -511,7 +568,7 @@ brushButtons.forEach((btn) => {
     brushState.mode = btn.dataset.brush;
 
     const isSculpting = brushState.mode !== 'none';
-    controls.mouseButtons.LEFT = isSculpting ? null : THREE.MOUSE.ROTATE;
+    controls.mouseButtons.LEFT = null;
     brushCursor.visible = isSculpting;
     brushSettings.classList.toggle('visible', isSculpting);
 
@@ -536,6 +593,8 @@ bindSlider('brush-strength', 'val-brush-strength', brushState, 'strength', (v) =
 document.getElementById('reset-terrain-btn').addEventListener('click', () => {
   btyManager.resetSculpt();
   waveSolver.warmup(oceanParams, 180);
+  spraySystem.warmup(oceanParams, waveSolver, 45);
+  crowdSystem.populate(btyManager, oceanParams.tideLevel);
   syncUIAndTelemetry();
 });
 
@@ -580,6 +639,45 @@ window.addEventListener('pointerup', () => {
   brushState.isPointerDown = false;
 });
 
+// --- Minecraft-style free-look: left-drag turns the view around the camera's own position ---
+const freeLook = { dragging: false, lastX: 0, lastY: 0 };
+const freeLookDir = new THREE.Vector3();
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || surferPov.active || brushState.mode !== 'none') return;
+  freeLook.dragging = true;
+  freeLook.lastX = e.clientX;
+  freeLook.lastY = e.clientY;
+  renderer.domElement.style.cursor = 'grabbing';
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (!freeLook.dragging) return;
+  const dx = e.clientX - freeLook.lastX;
+  const dy = e.clientY - freeLook.lastY;
+  freeLook.lastX = e.clientX;
+  freeLook.lastY = e.clientY;
+
+  freeLookDir.subVectors(controls.target, camera.position);
+  const dist = Math.max(3, freeLookDir.length());
+  freeLookDir.normalize();
+
+  let yaw = Math.atan2(freeLookDir.x, freeLookDir.z);
+  let pitch = Math.asin(Math.max(-1, Math.min(1, freeLookDir.y)));
+  yaw -= dx * 0.0042; // drag right -> look right
+  pitch = Math.max(-1.5, Math.min(1.5, pitch - dy * 0.0042)); // drag down -> look down
+
+  freeLookDir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+  controls.target.copy(camera.position).addScaledVector(freeLookDir, dist);
+});
+
+window.addEventListener('pointerup', () => {
+  if (freeLook.dragging) {
+    freeLook.dragging = false;
+    renderer.domElement.style.cursor = '';
+  }
+});
+
 // --- WASD + Mouse-Click Drag Camera Navigation ---
 const keyState = {
   KeyW: false,
@@ -604,6 +702,14 @@ const worldUp = new THREE.Vector3(0, 1, 0);
 window.addEventListener('keydown', (e) => {
   const tag = document.activeElement ? document.activeElement.tagName : '';
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (surferPov.active) {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      surferPov.takeOff(oceanParams);
+    } else if (e.code === 'Escape') {
+      exitSurfPov(true);
+    }
+  }
   if (e.code in keyState) {
     keyState[e.code] = true;
   }
@@ -668,6 +774,44 @@ function updateWASDCamera(dt) {
   }
 }
 
+// --- First-Person POV Surfing Mode (WASD) ---
+const surferPov = new SurferPovController(scene, camera, controls, waveSolver, btyManager, spraySystem);
+const surfHud = document.getElementById('surf-hud');
+const surfHudSpeed = document.getElementById('surf-hud-speed');
+const surfHudStatus = document.getElementById('surf-hud-status');
+const cameraSelectEl = document.getElementById('camera-select');
+
+function enterSurfPov() {
+  if (surferPov.active) return;
+  surfHud.classList.remove('hidden');
+  document.activeElement?.blur?.();
+  surferPov.enable(oceanParams);
+  cameraSelectEl.value = 'surf_pov';
+  crowdSystem.setVisible?.(true);
+}
+
+function exitSurfPov(returnToOrbit) {
+  surferPov.disable();
+  surfHud.classList.add('hidden');
+  if (returnToOrbit) {
+    cameraSelectEl.value = 'overview';
+    applyCameraPreset('overview');
+  }
+}
+
+function updateSurfHud() {
+  surfHudSpeed.textContent = `${surferPov.speed.toFixed(1)} m/s (${(surferPov.speed * 1.94384).toFixed(1)} kts)`;
+  if (surfHudStatus.textContent !== surferPov.statusLabel) surfHudStatus.textContent = surferPov.statusLabel;
+  surfHudStatus.classList.toggle('in-barrel', surferPov.isInBarrel);
+}
+
+document.getElementById('surf-pov-btn').addEventListener('click', enterSurfPov);
+document.getElementById('surf-exit-btn').addEventListener('click', () => exitSurfPov(true));
+document.getElementById('surf-dropin-btn').addEventListener('click', () => surferPov.resetToLineup(oceanParams, true));
+renderer.domElement.addEventListener('pointerdown', (e) => surferPov.onPointerDown(e));
+window.addEventListener('pointermove', (e) => surferPov.onPointerMove(e));
+window.addEventListener('pointerup', () => surferPov.onPointerUp());
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -676,6 +820,8 @@ window.addEventListener('resize', () => {
 
 // Pre-warm the 2D Shallow-Water PDE Solver so waves are already propagating across the surf zone
 waveSolver.warmup(oceanParams, 220);
+spraySystem.warmup(oceanParams, waveSolver, 45);
+crowdSystem.populate(btyManager, oceanParams.tideLevel);
 syncUIAndTelemetry();
 
 // --- Main Animation Loop ---
@@ -687,10 +833,13 @@ function animate() {
   const dt = Math.min(0.05, clock.getDelta());
 
   if (!isPaused) {
-    simTime += dt;
+    const simDt = dt * (oceanParams.timeScale ?? 1.0);
+    simTime += simDt;
     oceanMat.uniforms.uTime.value = simTime;
     waveSolver.update(dt, oceanParams);
-    spraySystem.update(dt, oceanParams, waveSolver);
+    spraySystem.update(simDt, oceanParams, waveSolver);
+    crowdSystem.update(simTime);
+    updateSetCountdownUI();
   }
 
   if (brushState.mode !== 'none' && brushState.isPointerDown && brushState.hasHit) {
@@ -703,11 +852,19 @@ function animate() {
       dt
     );
     if (changed) {
+      crowdSystem.populate(btyManager, oceanParams.tideLevel);
       syncUIAndTelemetry();
     }
   }
 
-  updateWASDCamera(dt);
+  if (surferPov.active) {
+    if (!isPaused) {
+      surferPov.update(dt * (oceanParams.timeScale ?? 1.0), keyState, oceanParams);
+    }
+    updateSurfHud();
+  } else {
+    updateWASDCamera(dt);
+  }
 
   if (controls.enabled) {
     controls.update();

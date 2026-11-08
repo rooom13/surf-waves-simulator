@@ -509,3 +509,89 @@ input[type="range"]::-webkit-slider-thumb:hover {
     width: 260px;
   }
 }
+
+/* First-Person Surf POV HUD */
+.hidden { display: none !important; }
+
+.surf-cta-btn {
+  background: linear-gradient(135deg, #0891b2, #0d9488);
+  border-color: #22d3ee;
+}
+
+.surf-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+
+.surf-hud-top {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.surf-stat-pill,
+.surf-status-banner {
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.surf-stat-pill { display: flex; flex-direction: column; gap: 1px; }
+.surf-stat-label { font-size: 9px; letter-spacing: 0.06em; color: var(--text-muted); }
+.surf-status-banner.in-barrel {
+  background: linear-gradient(135deg, #0891b2, #0d9488);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.55);
+}
+
+.surf-hud-actions { display: flex; gap: 8px; }
+.surf-hud-btn {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-glass);
+  color: var(--text-main);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.surf-hud-btn.primary { border-color: #22d3ee; background: rgba(34, 211, 238, 0.2); }
+.surf-hud-btn:hover { background: rgba(34, 211, 238, 0.32); }
+
+.surf-hud-keys {
+  position: absolute;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  background: rgba(11, 22, 34, 0.7);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.surf-hud-keys kbd {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #fff;
+  font-family: inherit;
+}
+
+/* Keep the top bar on one row with the extra POV button */
+.brand .subtitle { display: none; }
+.top-controls { flex-wrap: nowrap; }
+.surf-cta-btn { white-space: nowrap; padding: 9px 11px; }
+.surf-hud-top { top: 104px; }
+.surf-status-banner, .surf-stat-pill { white-space: nowrap; }

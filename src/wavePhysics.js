@@ -46,35 +46,40 @@ export function evaluateSurfTelemetry(oceanParams, btyManager) {
   const shoalingAmp = baseShoaling * wedgeBoost;
   const breakingFaceHeight = H0 * shoalingAmp * (1.0 + Math.max(0, offshoreFactor) * 0.10);
 
-  const effectiveSlope = maxSlope * 0.65;
+  const effectiveSlope = Math.max(0.015, maxSlope * 0.65);
   const waveSteepness = Math.max(0.002, breakingFaceHeight / L0);
   const rawIribarren = effectiveSlope / Math.sqrt(waveSteepness);
-  const iribarren = Math.max(0.15, rawIribarren * (1.0 + offshoreFactor * 0.25 + sideWave * 0.15));
+  const iribarren = Math.max(0.15, rawIribarren * (1.0 + offshoreFactor * 0.28 + sideWave * 0.14));
+
+  // Mead & Black (2001) Vortex Ratio (Tube Length / Width ratio L_v / W_v)
+  // Lower vortex ratio (1.3 - 2.2) = rounder/squarer hollow barrel; > 3.0 = spilling roller
+  const rawVortexRatio = 0.22 * Math.pow(effectiveSlope, -0.76) * Math.pow(waveSteepness / 0.025, 0.22);
+  const vortexRatio = Math.max(1.15, Math.min(4.2, rawVortexRatio * (1.0 - offshoreFactor * 0.18)));
 
   let breakType = 'Plunging / Hollow Barrel';
-  let lipPitchDesc = 'Pitching Ratio: High';
+  let lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Round Tube)`;
 
   if (sideWave >= 1.05 && backwash >= 1.0) {
     breakType = 'Mutant Wedge + Backwash';
-    lipPitchDesc = 'Explosive Collision Peak';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Wedge Peak)`;
   } else if (sideWave >= 1.05) {
     breakType = 'Mutant Side-Wave Wedge';
-    lipPitchDesc = 'Mach-Stem Triangle Peak';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Mach Wedge)`;
   } else if (backwash >= 1.15) {
     breakType = 'Heavy Backwash Shorebreak';
-    lipPitchDesc = 'Seaward Collision Spike';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Collision)`;
   } else if (iribarren < 0.45) {
     breakType = 'Spilling / Crumbling';
-    lipPitchDesc = 'Gentle Mushy Roller';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Spilling)`;
   } else if (iribarren < 0.72) {
-    breakType = 'Semi-Plunging Wall';
-    lipPitchDesc = 'Steep Rippable Face';
+    breakType = 'Semi-Plunging Almond';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Almond Tube)`;
   } else if (iribarren < 1.55) {
     breakType = 'Plunging / Hollow Barrel';
-    lipPitchDesc = 'Square Pitching Tube';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Cylindrical)`;
   } else {
-    breakType = 'Heavy Slab / Surging Ledge';
-    lipPitchDesc = 'Mutant Thick Lip';
+    breakType = 'Heavy Slab / Square Tube';
+    lipPitchDesc = `Vortex L/W: ${vortexRatio.toFixed(2)} (Square Slab)`;
   }
 
   const breakDepth = Math.max(1.2, breakingFaceHeight / 0.85);

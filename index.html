@@ -37,6 +37,7 @@
         <label for="camera-select">Camera View</label>
         <select id="camera-select">
           <option value="overview">Coastal Orbit View</option>
+          <option value="surf_pov">🏄 First-Person Surf POV (WASD)</option>
           <option value="underwater">Underwater Seabed & Reef View</option>
           <option value="lineup">Lineup / Shoulder View</option>
           <option value="barrel">Wave Pocket / Tube View</option>
@@ -55,11 +56,55 @@
         </select>
       </div>
 
+      <div class="control-pill">
+        <label for="speed-select">Sim Speed</label>
+        <select id="speed-select">
+          <option value="0.25">0.25x (Super Slow-Mo)</option>
+          <option value="0.5">0.5x (Slow Motion)</option>
+          <option value="1" selected>1.0x (Real-Time)</option>
+          <option value="1.5">1.5x (Fast)</option>
+          <option value="2">2.0x (2x Speed)</option>
+          <option value="4">4.0x (Fast-Forward)</option>
+        </select>
+      </div>
+
+      <button id="surf-pov-btn" class="action-btn surf-cta-btn" title="Enter First-Person WASD Surfing Mode">
+        🏄 Surf POV
+      </button>
+
       <button id="pause-btn" class="action-btn" title="Pause / Resume Wave Propagation">
         ⏸ Pause
       </button>
     </div>
   </header>
+
+  <!-- First-Person POV Surfing HUD Overlay -->
+  <div id="surf-hud" class="surf-hud hidden">
+    <div class="surf-hud-top">
+      <div class="surf-stat-pill">
+        <span class="surf-stat-label">BOARD SPEED</span>
+        <strong id="surf-hud-speed">6.8 m/s (13.2 kts)</strong>
+      </div>
+      <div class="surf-status-banner" id="surf-hud-status">
+        🏄 Planing on Open Wave Face
+      </div>
+      <div class="surf-hud-actions">
+        <button id="surf-dropin-btn" class="surf-hud-btn primary" title="Paddle back to the lineup">
+          ↺ Back to Lineup
+        </button>
+        <button id="surf-exit-btn" class="surf-hud-btn" title="Return to Orbit Camera (Esc)">
+          ✕ Exit POV
+        </button>
+      </div>
+    </div>
+    <div class="surf-hud-keys">
+      <span><kbd>W</kbd>/<kbd>↑</kbd> Paddle / Pump</span>
+      <span><kbd>S</kbd>/<kbd>↓</kbd> Stall (Tuck in Barrel)</span>
+      <span><kbd>A</kbd>/<kbd>D</kbd> Carve Left / Right</span>
+      <span><kbd>Space</kbd> Take Off (only on a wave)</span>
+      <span><kbd>Drag Mouse</kbd> Look into Tube</span>
+    </div>
+  </div>
 
   <!-- Left Panel: Swell, Wind & Tide Parameters -->
   <aside class="panel left-panel" id="ocean-panel">
@@ -103,9 +148,9 @@
         <div class="slider-row">
           <div class="slider-label">
             <span>Set Lull Depth (Grouping)</span>
-            <strong id="val-swell-grouping">45%</strong>
+            <strong id="val-swell-grouping">65%</strong>
           </div>
-          <input type="range" id="swell-grouping" min="0" max="100" step="5" value="45" />
+          <input type="range" id="swell-grouping" min="0" max="100" step="5" value="65" />
         </div>
 
         <div class="slider-row">
