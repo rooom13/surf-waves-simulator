@@ -49,6 +49,10 @@ export class SurferPovController {
     this.toastTime = 0;
     this.slowTime = 0;
 
+    // Duck dive state (submerging under oncoming wave crest/whitewater)
+    this.duckDivePhase = 0.0; // 0 = surface, >0 = diving underwater (duration ~1.5s)
+    this.duckDiveDepth = 0.0; // vertical offset in meters (negative underwater)
+
     // Build 1:1 metric 3D surfboard mesh (2.05m x 0.52m shortboard) visible below POV camera
     this.boardGroup = this.createSurfboardMesh();
     this.boardGroup.visible = false;
@@ -355,6 +359,8 @@ export class SurferPovController {
     this.yaw = Math.atan2(peelSign * 0.28, 1.0);
     this.vel.set(0, 0, 0);
     this.mode = 'paddle';
+    this.duckDivePhase = 0.0;
+    this.duckDiveDepth = 0.0;
     this.lookYawOffset = 0.0;
     this.lookPitchOffset = -0.05;
     this.barrelTime = 0;
@@ -412,10 +418,21 @@ export class SurferPovController {
     if (keyState.KeyA || keyState.ArrowLeft) turnInput += 1; // Turn left (+yaw)
     if (keyState.KeyD || keyState.ArrowRight) turnInput -= 1; // Turn right (-yaw)
 
+    // Duck dive mechanics:
+    // When paddling/waiting in the lineup or paddling for waves, pressing S initiates or maintains a duck dive
+    // under oncoming waves / broken whitewater!
+    if (paddling && throttle < 0) {
+      this.duckDivePhase = Math.min(1.5, this.duckDivePhase + dt);
+    } else if (this.duckDivePhase > 0) {
+      // Smoothly resurface once S is released or time limit expires
+      this.duckDivePhase = Math.max(0, this.duckDivePhase - dt * 2.2);
+    }
+    const isDuckDiving = this.duckDivePhase > 0.05;
+
     const curSpeed = Math.hypot(this.vel.x, this.vel.z);
 
     // 3. Steering / Rail Carving (responsive at both paddling and planing speeds)
-    const turnRate = (this.mode === 'paddle' ? 0.9 : 1.65 + Math.min(1.1, curSpeed * 0.12)) * turnInput;
+    const turnRate = (isDuckDiving ? 0.35 : this.mode === 'paddle' ? 0.9 : 1.65 + Math.min(1.1, curSpeed * 0.12)) * turnInput;
     this.yaw += turnRate * dt;
 
     // Gently recenter head-look yaw when carving unless actively dragging mouse
@@ -444,11 +461,15 @@ export class SurferPovController {
     }
 
     // Surfer W/S input:
-    // Paddling: W = paddle forward, S = back-paddle. Riding: W = pump down the face, S = stall into the barrel
+    // Paddling: W = paddle forward, S = duck dive under waves. Riding: W = pump down the face, S = stall into the barrel
     if (paddling) {
-      if (throttle !== 0) {
-        ax += dirX * 3.4 * throttle;
-        az += dirZ * 3.4 * throttle;
+      if (isDuckDiving) {
+        // Momentum pushes forward underwater through the wave
+        ax += dirX * 1.8;
+        az += dirZ * 1.8;
+      } else if (throttle > 0) {
+        ax += dirX * 3.4;
+        az += dirZ * 3.4;
         this.paddlePhase += dt * 6.5;
       } else {
         this.paddlePhase += dt * 1.2;
@@ -507,9 +528,18 @@ export class SurferPovController {
     this.pos.x = nextX;
     this.pos.z = nextZ;
 
-    // Smoothly track vertical wave surface elevation
+    // Smoothly track vertical wave surface elevation & apply duck dive submarine immersion
     const targetY = nextSample.surfaceY;
-    this.pos.y += (targetY - this.pos.y) * Math.min(1.0, dt * 18.0);
+    if (isDuckDiving) {
+      // Submerge nose down up to 1.45m below water level
+      const diveProgress = Math.min(1.0, this.duckDivePhase / 0.85);
+      const targetSubmerge = -1.45 * Math.sin(diveProgress * Math.PI);
+      this.duckDiveDepth += (targetSubmerge - this.duckDiveDepth) * Math.min(1.0, dt * 8.0);
+    } else {
+      this.duckDiveDepth += (0.0 - this.duckDiveDepth) * Math.min(1.0, dt * 10.0);
+    }
+    const finalSurfY = Math.max(nextSample.seabed + 0.35, targetY + this.duckDiveDepth);
+    this.pos.y += (finalSurfY - this.pos.y) * Math.min(1.0, dt * 18.0);
 
     // 5. Evaluate Surfing & Barrel State for HUD
     this.isOnWave = onFrontFace && this.speed > 3.2;
@@ -527,11 +557,15 @@ export class SurferPovController {
     }
 
     if (paddling) {
-      this.statusLabel = takeOffReady
-        ? '✅ On a wave face - press SPACE to take off!'
-        : throttle !== 0
-          ? '🏊 Paddling - line up with an approaching wave'
-          : '🌊 Waiting in the lineup (W to paddle)';
+      if (isDuckDiving) {
+        this.statusLabel = '🤿 DUCK DIVE! Punching Under Oncoming Wave Crest';
+      } else {
+        this.statusLabel = takeOffReady
+          ? '✅ On a wave face - press SPACE to take off!'
+          : throttle > 0
+            ? '🏊 Paddling - line up with an approaching wave'
+            : '🌊 Waiting in the lineup (W to paddle • S to Duck Dive)';
+      }
     } else if (this.isInBarrel) {
       this.barrelTime += dt;
       this.rideTime += dt;
@@ -565,7 +599,13 @@ export class SurferPovController {
     }
 
     // 7. Update 3D Surfboard & First-Person Camera Pose
-    const wavePitch = Math.max(-0.38, Math.min(0.38, -(nextSample.gradX * dirX + nextSample.gradZ * dirZ) * 0.65));
+    let wavePitch = Math.max(-0.38, Math.min(0.38, -(nextSample.gradX * dirX + nextSample.gradZ * dirZ) * 0.65));
+    if (isDuckDiving) {
+      // Board pitches nose steeply down into the water on entry (-0.65 rad), then levels out and levels up on exit (+0.40 rad)
+      const diveT = Math.min(1.0, this.duckDivePhase / 0.85);
+      const divePitch = -0.65 * (1.0 - diveT * 1.6);
+      wavePitch = THREE.MathUtils.lerp(wavePitch, divePitch, 0.85);
+    }
     const targetRoll = turnInput * 0.34 * Math.min(1.0, this.speed / 4.5);
     this.pitch += (wavePitch - this.pitch) * Math.min(1.0, dt * 10.0);
     this.roll += (targetRoll - this.roll) * Math.min(1.0, dt * 10.0);
@@ -577,10 +617,10 @@ export class SurferPovController {
     this.boardGroup.rotation.x = this.pitch;
     this.boardGroup.rotation.z = this.roll;
 
-    // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.68m when paddling prone
-    const targetStanceHeight = paddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
+    // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.68m when paddling prone, 0.38m during duck dive
+    const targetStanceHeight = isDuckDiving ? 0.38 : paddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
     this.currentEyeH = (this.currentEyeH ?? 1.4) + (targetStanceHeight - (this.currentEyeH ?? 1.4)) * Math.min(1.0, dt * 6.0);
-    const paddleBob = paddling && throttle !== 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
+    const paddleBob = paddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
 
     const camX = this.pos.x - dirX * 0.18;
     const camY = this.pos.y + this.currentEyeH + paddleBob;
