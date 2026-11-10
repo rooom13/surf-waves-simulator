@@ -17,6 +17,11 @@
         <h1>SurfLab <span>3D</span></h1>
         <p class="subtitle">Hydrodynamic Wave Shoaling & Bathymetry Simulator</p>
       </div>
+      <div id="fps-badge" class="fps-badge" title="Rendering performance (FPS & frame duration)">
+        <span class="fps-dot"></span>
+        <strong id="fps-val">60</strong>&nbsp;<small>FPS</small>
+        <span id="fps-ms" class="fps-ms">16.6ms</span>
+      </div>
     </div>
 
     <div class="top-controls">
@@ -37,6 +42,7 @@
         <label for="camera-select">Camera View</label>
         <select id="camera-select">
           <option value="overview">Coastal Orbit View</option>
+          <option value="surf_third">🦅 Third-Person Surf (Low Bird-View)</option>
           <option value="surf_pov">🏄 First-Person Surf POV (WASD)</option>
           <option value="underwater">Underwater Seabed & Reef View</option>
           <option value="lineup">Lineup / Shoulder View</option>
@@ -68,7 +74,21 @@
         </select>
       </div>
 
-      <button id="surf-pov-btn" class="action-btn surf-cta-btn" title="Enter First-Person WASD Surfing Mode">
+      <div class="control-pill">
+        <label for="particles-select">Particles</label>
+        <select id="particles-select">
+          <option value="all">All Active</option>
+          <option value="no_barrel">Disable Barrel</option>
+          <option value="no_whitewater">Disable Whitewater</option>
+          <option value="none" selected>Disable All</option>
+        </select>
+      </div>
+
+      <button id="surf-third-btn" class="action-btn surf-cta-btn" title="Enter Third-Person Low Bird-View Surfing Mode">
+        🦅 Surf Bird-View
+      </button>
+
+      <button id="surf-pov-btn" class="action-btn surf-pov-sub-btn" title="Enter First-Person WASD Surfing Mode">
         🏄 Surf POV
       </button>
 
@@ -78,7 +98,7 @@
     </div>
   </header>
 
-  <!-- First-Person POV Surfing HUD Overlay -->
+  <!-- Surfing HUD Overlay (1st-Person POV & 3rd-Person Low Bird-View) -->
   <div id="surf-hud" class="surf-hud hidden">
     <div class="surf-hud-top">
       <div class="surf-stat-pill">
@@ -89,20 +109,34 @@
         🏄 Planing on Open Wave Face
       </div>
       <div class="surf-hud-actions">
+        <button id="surf-view-toggle-btn" class="surf-hud-btn" title="Toggle between Low Bird-View and First-Person POV (Press C or V)">
+          📷 1st-Person POV <kbd style="font-size:10px;margin-left:4px">C</kbd>
+        </button>
         <button id="surf-dropin-btn" class="surf-hud-btn primary" title="Paddle back to the lineup">
           ↺ Back to Lineup
         </button>
         <button id="surf-exit-btn" class="surf-hud-btn" title="Return to Orbit Camera (Esc)">
-          ✕ Exit POV
+          ✕ Exit Surfing
         </button>
       </div>
     </div>
+    <!-- Floating HUD Bathymetry Depth Radar -->
+    <div id="surf-hud-map-card" class="surf-hud-map-card">
+      <div class="surf-hud-map-header">
+        <span>BATHYMETRY RADAR</span>
+        <span id="surf-hud-depth-tag">Depth: 2.1m</span>
+      </div>
+      <canvas id="surf-hud-minimap" width="160" height="105"></canvas>
+    </div>
+
     <div class="surf-hud-keys">
-      <span><kbd>W</kbd>/<kbd>↑</kbd> Paddle / Pump</span>
+      <span><kbd>W</kbd>/<kbd>↑</kbd> Paddle (Double-Tap W to Sprint)</span>
       <span><kbd>S</kbd>/<kbd>↓</kbd> Duck Dive (Paddling) / Stall (Wave)</span>
       <span><kbd>A</kbd>/<kbd>D</kbd> Carve Left / Right</span>
-      <span><kbd>Space</kbd> Take Off (only on a wave)</span>
-      <span><kbd>Drag Mouse</kbd> Look into Tube</span>
+      <span><kbd>Space</kbd> Take Off (on wave)</span>
+      <span><kbd>C</kbd>/<kbd>V</kbd> Toggle 1st/3rd Person</span>
+      <span><kbd>M</kbd> Toggle Radar Map</span>
+      <span><kbd>Drag Mouse</kbd> Look Around</span>
     </div>
   </div>
 
@@ -148,9 +182,9 @@
         <div class="slider-row">
           <div class="slider-label">
             <span>Set Lull Depth (Grouping)</span>
-            <strong id="val-swell-grouping">65%</strong>
+            <strong id="val-swell-grouping">10%</strong>
           </div>
-          <input type="range" id="swell-grouping" min="0" max="100" step="5" value="65" />
+          <input type="range" id="swell-grouping" min="0" max="100" step="5" value="10" />
         </div>
 
         <div class="slider-row">
@@ -270,6 +304,34 @@
           <input type="range" id="sun-elevation" min="4" max="75" step="1" value="28" />
         </div>
       </section>
+
+      <!-- Spray & Foam Particles -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Spray & Foam Particles</span>
+          <span class="badge subtle" id="particles-badge">Disabled</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="particles-barrel-toggle" />
+            <span>Barrel Lip Falling Particles</span>
+          </label>
+
+          <label class="checkbox-label">
+            <input type="checkbox" id="particles-whitewater-toggle" />
+            <span>Whitewater & Spit Particles</span>
+          </label>
+        </div>
+
+        <div class="slider-row" style="margin-top: 8px;">
+          <div class="slider-label">
+            <span>Particle Density</span>
+            <strong id="val-particle-density">0%</strong>
+          </div>
+          <input type="range" id="particle-density" min="0" max="100" step="5" value="0" />
+        </div>
+      </section>
     </div>
   </aside>
 
@@ -370,11 +432,12 @@
           <span class="badge subtle">Offshore ↑ / Shore ↓</span>
         </div>
         <div class="minimap-wrapper">
-          <canvas id="bathymetry-minimap" width="220" height="140"></canvas>
+          <canvas id="bathymetry-minimap" width="248" height="135"></canvas>
           <div class="minimap-legend">
             <span><i class="dot deep"></i>Deep (-18m)</span>
             <span><i class="dot reef"></i>Reef (-1.5m)</span>
             <span><i class="dot sand"></i>Dry Beach</span>
+            <span><i class="dot player"></i>Surfboard</span>
           </div>
         </div>
       </section>

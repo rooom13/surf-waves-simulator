@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WORLD_SIZE } from './bathymetry.js';
+import { PARTICLE_TYPE_BOARD_SPRAY } from './spraySystem.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -49,14 +50,230 @@ export class SurferPovController {
     this.toastTime = 0;
     this.slowTime = 0;
 
+    // Sprint paddling via double-tap W (or Shift+W)
+    this.lastWPressTime = 0;
+    this.prevWDown = false;
+    this.isSprinting = false;
+
     // Duck dive state (submerging under oncoming wave crest/whitewater)
     this.duckDivePhase = 0.0; // 0 = surface, >0 = diving underwater (duration ~1.5s)
     this.duckDiveDepth = 0.0; // vertical offset in meters (negative underwater)
 
-    // Build 1:1 metric 3D surfboard mesh (2.05m x 0.52m shortboard) visible below POV camera
+    // Camera view mode: 'third_person' (low bird-view drone chase) or 'first_person' (surfer POV)
+    this.viewMode = 'third_person';
+    this.camPosSmoothed = null;
+    this.camLookSmoothed = null;
+
+    // Build 1:1 metric 3D surfboard mesh (2.05m x 0.52m shortboard)
     this.boardGroup = this.createSurfboardMesh();
     this.boardGroup.visible = false;
     this.scene.add(this.boardGroup);
+
+    // Build 1:1 metric 3D surfer figure (prone paddling & standing ride poses)
+    this.surferFigureGroup = this.createSurferFigure();
+    this.boardGroup.add(this.surferFigureGroup);
+  }
+
+  createSurferFigure() {
+    const group = new THREE.Group();
+    group.name = 'SurferFigure';
+
+    // Stylized high-performance surf materials
+    const wetsuitMat = new THREE.MeshStandardMaterial({
+      color: 0x111827, // dark charcoal neoprene
+      roughness: 0.40,
+      metalness: 0.08,
+    });
+    const wetsuitAccentMat = new THREE.MeshStandardMaterial({
+      color: 0x06b6d4, // bright cyan stripes/panels
+      roughness: 0.32,
+      metalness: 0.12,
+    });
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xd49568, // tanned skin tone
+      roughness: 0.65,
+      metalness: 0.04,
+    });
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: 0x221712, // dark brown surf hair
+      roughness: 0.85,
+      metalness: 0.02,
+    });
+
+    // 1. PRONE GROUP (Lying down paddling or duck diving)
+    const prone = new THREE.Group();
+    prone.name = 'SurferProne';
+
+    // Prone Torso (arched upward chest)
+    const proneTorsoGeom = new THREE.CapsuleGeometry(0.13, 0.42, 4, 8);
+    const proneTorso = new THREE.Mesh(proneTorsoGeom, wetsuitMat);
+    proneTorso.position.set(0, 0.14, 0.02);
+    proneTorso.rotation.x = 0.18; // chest lifted
+    prone.add(proneTorso);
+
+    // Wetsuit back accent panel
+    const proneAccentGeom = new THREE.BoxGeometry(0.20, 0.04, 0.22);
+    const proneAccent = new THREE.Mesh(proneAccentGeom, wetsuitAccentMat);
+    proneAccent.position.set(0, 0.21, 0.05);
+    proneAccent.rotation.x = 0.18;
+    prone.add(proneAccent);
+
+    // Prone Head
+    const proneHeadGeom = new THREE.SphereGeometry(0.11, 10, 8);
+    this.proneHead = new THREE.Mesh(proneHeadGeom, skinMat);
+    this.proneHead.position.set(0, 0.26, 0.32);
+    prone.add(this.proneHead);
+
+    const proneHairGeom = new THREE.SphereGeometry(0.115, 8, 6);
+    proneHairGeom.scale(1.0, 0.55, 1.05);
+    const proneHair = new THREE.Mesh(proneHairGeom, hairMat);
+    proneHair.position.set(0, 0.05, -0.02);
+    this.proneHead.add(proneHair);
+
+    // Prone Legs (extended back toward tail)
+    const proneLegGeom = new THREE.CapsuleGeometry(0.065, 0.55, 4, 8);
+    proneLegGeom.rotateX(Math.PI / 2);
+    const proneLegL = new THREE.Mesh(proneLegGeom, wetsuitMat);
+    proneLegL.position.set(-0.09, 0.08, -0.44);
+    const proneLegR = new THREE.Mesh(proneLegGeom, wetsuitMat);
+    proneLegR.position.set(0.09, 0.08, -0.44);
+    prone.add(proneLegL, proneLegR);
+
+    // Prone Arms (paddling shoulder pivots)
+    const armGeom = new THREE.CapsuleGeometry(0.052, 0.42, 4, 8);
+    armGeom.translate(0, -0.19, 0);
+
+    this.proneArmL = new THREE.Group();
+    this.proneArmL.position.set(-0.19, 0.17, 0.18);
+    const armLMesh = new THREE.Mesh(armGeom, skinMat);
+    this.proneArmL.add(armLMesh);
+
+    this.proneArmR = new THREE.Group();
+    this.proneArmR.position.set(0.19, 0.17, 0.18);
+    const armRMesh = new THREE.Mesh(armGeom, skinMat);
+    this.proneArmR.add(armRMesh);
+
+    prone.add(this.proneArmL, this.proneArmR);
+    group.add(prone);
+    this.surferProneGroup = prone;
+
+    // 2. STANDING GROUP (Athletic wave riding stance)
+    const standing = new THREE.Group();
+    standing.name = 'SurferStanding';
+
+    // Pelvis / Hips
+    const hipGeom = new THREE.BoxGeometry(0.28, 0.16, 0.22);
+    const hips = new THREE.Mesh(hipGeom, wetsuitMat);
+    hips.position.set(-0.02, 0.65, -0.16);
+    standing.add(hips);
+
+    // Torso (angled slightly forward & turned towards wave face)
+    const standTorsoGeom = new THREE.CapsuleGeometry(0.155, 0.44, 4, 10);
+    const standTorso = new THREE.Mesh(standTorsoGeom, wetsuitMat);
+    standTorso.position.set(-0.03, 0.98, -0.14);
+    standTorso.rotation.x = -0.08;
+    standTorso.rotation.y = 0.32;
+    standing.add(standTorso);
+
+    // Wetsuit chest/shoulder cyan accent
+    const standAccentGeom = new THREE.BoxGeometry(0.24, 0.18, 0.18);
+    const standAccent = new THREE.Mesh(standAccentGeom, wetsuitAccentMat);
+    standAccent.position.set(-0.03, 1.08, -0.14);
+    standAccent.rotation.y = 0.32;
+    standing.add(standAccent);
+
+    // Standing Head & Hair
+    const standHeadGeom = new THREE.SphereGeometry(0.12, 10, 8);
+    const standHead = new THREE.Mesh(standHeadGeom, skinMat);
+    standHead.position.set(-0.02, 1.34, -0.11);
+    standHead.rotation.y = 0.48; // looking down the line
+    standing.add(standHead);
+
+    const standHairGeom = new THREE.SphereGeometry(0.125, 8, 6);
+    standHairGeom.scale(1.0, 0.58, 1.05);
+    const standHair = new THREE.Mesh(standHairGeom, hairMat);
+    standHair.position.set(0, 0.05, -0.01);
+    standHead.add(standHair);
+
+    // Front Left Leg (flexed athletic knee, foot angled forward on deck)
+    const legThighGeom = new THREE.CapsuleGeometry(0.072, 0.38, 4, 8);
+    legThighGeom.translate(0, -0.16, 0);
+
+    const legCalfGeom = new THREE.CapsuleGeometry(0.065, 0.36, 4, 8);
+    legCalfGeom.translate(0, -0.15, 0);
+
+    // Left Thigh
+    const leftThigh = new THREE.Mesh(legThighGeom, wetsuitMat);
+    leftThigh.position.set(-0.11, 0.62, -0.08);
+    leftThigh.rotation.x = -0.52;
+    leftThigh.rotation.z = -0.18;
+    standing.add(leftThigh);
+
+    // Left Shin / Calf
+    const leftCalf = new THREE.Mesh(legCalfGeom, wetsuitMat);
+    leftCalf.position.set(-0.08, 0.34, 0.08);
+    leftCalf.rotation.x = 0.38;
+    leftCalf.rotation.z = -0.06;
+    standing.add(leftCalf);
+
+    // Left Foot (angled forward ~35°)
+    const footGeom = new THREE.BoxGeometry(0.10, 0.05, 0.22);
+    const leftFoot = new THREE.Mesh(footGeom, skinMat);
+    leftFoot.position.set(-0.06, 0.035, 0.22);
+    leftFoot.rotation.y = 0.58;
+    standing.add(leftFoot);
+
+    // Back Right Leg (driving power over rear traction pad)
+    const rightThigh = new THREE.Mesh(legThighGeom, wetsuitMat);
+    rightThigh.position.set(0.08, 0.62, -0.24);
+    rightThigh.rotation.x = 0.42;
+    rightThigh.rotation.z = 0.16;
+    standing.add(rightThigh);
+
+    const rightCalf = new THREE.Mesh(legCalfGeom, wetsuitMat);
+    rightCalf.position.set(0.06, 0.35, -0.46);
+    rightCalf.rotation.x = -0.32;
+    rightCalf.rotation.z = 0.08;
+    standing.add(rightCalf);
+
+    const rightFoot = new THREE.Mesh(footGeom, skinMat);
+    rightFoot.position.set(0.02, 0.035, -0.62);
+    rightFoot.rotation.y = 1.35; // nearly perpendicular across traction pad
+    standing.add(rightFoot);
+
+    // Arms: Shoulders with pivots for dynamic balance & carving counter-rotation
+    const standArmGeom = new THREE.CapsuleGeometry(0.056, 0.44, 4, 8);
+    standArmGeom.translate(0, -0.20, 0);
+
+    // Leading Left Arm (pointing down the line into the barrel)
+    this.standArmL = new THREE.Group();
+    this.standArmL.position.set(-0.21, 1.15, -0.05);
+    const standArmLMesh = new THREE.Mesh(standArmGeom, wetsuitMat);
+    this.standArmL.add(standArmLMesh);
+    const handLGeom = new THREE.SphereGeometry(0.045, 6, 6);
+    const handL = new THREE.Mesh(handLGeom, skinMat);
+    handL.position.set(0, -0.42, 0);
+    this.standArmL.add(handL);
+    standing.add(this.standArmL);
+
+    // Trailing Right Arm (held out and back for balance)
+    this.standArmR = new THREE.Group();
+    this.standArmR.position.set(0.18, 1.15, -0.22);
+    const standArmRMesh = new THREE.Mesh(standArmGeom, wetsuitMat);
+    this.standArmR.add(standArmRMesh);
+    const handR = new THREE.Mesh(handLGeom, skinMat);
+    handR.position.set(0, -0.42, 0);
+    this.standArmR.add(handR);
+    standing.add(this.standArmR);
+
+    group.add(standing);
+    this.surferStandingGroup = standing;
+
+    // Initially show prone
+    this.surferProneGroup.visible = true;
+    this.surferStandingGroup.visible = false;
+
+    return group;
   }
 
   createSurfboardMesh() {
@@ -124,14 +341,32 @@ export class SurferPovController {
     return group;
   }
 
-  enable(oceanParams) {
+  enable(oceanParams, viewMode = 'third_person') {
     this.active = true;
     this.controls.enabled = false;
     this.boardGroup.visible = true;
-    this.camera.fov = 68;
+    this.camPosSmoothed = null;
+    this.camLookSmoothed = null;
+    this.setViewMode(viewMode);
     this.camera.near = 0.15;
-    this.camera.updateProjectionMatrix();
     this.resetToLineup(oceanParams, true);
+  }
+
+  setViewMode(viewMode) {
+    this.viewMode = viewMode === 'first_person' ? 'first_person' : 'third_person';
+    if (this.viewMode === 'third_person') {
+      this.camera.fov = 62;
+      this.surferFigureGroup.visible = true;
+    } else {
+      this.camera.fov = 68;
+      this.surferFigureGroup.visible = false;
+    }
+    this.camera.updateProjectionMatrix();
+  }
+
+  toggleViewMode() {
+    this.setViewMode(this.viewMode === 'third_person' ? 'first_person' : 'third_person');
+    return this.viewMode;
   }
 
   disable() {
@@ -139,6 +374,8 @@ export class SurferPovController {
     this.active = false;
     this.controls.enabled = true;
     this.boardGroup.visible = false;
+    this.camPosSmoothed = null;
+    this.camLookSmoothed = null;
     this.camera.fov = 48;
     this.camera.near = 0.5;
     this.camera.updateProjectionMatrix();
@@ -304,14 +541,14 @@ export class SurferPovController {
 
     const findBestPeak = () => {
       let bestScore = -1e9;
-      let bestX = 8 * -peelSign;
-      let bestZ = -18;
+      let bestX = 156 * -peelSign;
+      let bestZ = -150;
       let bestDirX = 0.72 * peelSign;
       let bestDirZ = 0.68;
 
-      for (let j = Math.floor(N * 0.30); j < Math.floor(N * 0.62); j += 2) {
+      for (let j = Math.floor(N * 0.12); j < Math.floor(N * 0.75); j += 2) {
         const wz = (j / (N - 1) - 0.5) * WORLD_SIZE;
-        for (let i = Math.floor(N * 0.22); i < Math.floor(N * 0.78); i += 2) {
+        for (let i = Math.floor(N * 0.08); i < Math.floor(N * 0.92); i += 2) {
           const wx = (i / (N - 1) - 0.5) * WORLD_SIZE;
           const idx = j * N + i;
           const d0 = tide - elev[idx];
@@ -325,7 +562,9 @@ export class SurferPovController {
           const bTube = Math.hypot(bx, bz);
 
           if (eta < 0.70) continue;
-          const pocketScore = eta * 2.2 + bTube * 3.0 - Math.max(0, foam - 0.48) * 3.5;
+          // Prioritize the outer take-off peak so surfers can ride the full length of the point break
+          const seawardBonus = preset.includes('point') ? Math.max(0, -wz * 0.04) : 0.0;
+          const pocketScore = eta * 2.2 + bTube * 3.0 - Math.max(0, foam - 0.48) * 3.5 + seawardBonus;
           if (pocketScore > bestScore) {
             bestScore = pocketScore;
             const propX = bTube > 0.05 ? bx / bTube : 0.0;
@@ -354,16 +593,20 @@ export class SurferPovController {
     // Park the surfer prone on the board in the lineup, seaward of the breaking peak,
     // facing the shore. The surfer must paddle into a wave and take off - no teleporting onto the face.
     const lineupX = peak.bestX;
-    const lineupZ = Math.max(-118, peak.bestZ - 26);
+    const lineupZ = Math.max(-WORLD_SIZE * 0.44, peak.bestZ - 28);
     const surfSample = this.sampleSurface(lineupX, lineupZ, oceanParams);
     this.pos.set(lineupX, surfSample.surfaceY, lineupZ);
     this.yaw = Math.atan2(peelSign * 0.28, 1.0);
     this.vel.set(0, 0, 0);
     this.mode = 'paddle';
+    this.isSprinting = false;
+    this.prevWDown = false;
     this.duckDivePhase = 0.0;
     this.duckDiveDepth = 0.0;
     this.lookYawOffset = 0.0;
     this.lookPitchOffset = -0.05;
+    this.camPosSmoothed = null;
+    this.camLookSmoothed = null;
     this.barrelTime = 0;
     this.slowTime = 0;
     this.isOnWave = false;
@@ -411,13 +654,37 @@ export class SurferPovController {
     const paddling = this.mode === 'paddle';
     const takeOffReady = paddling && this.canTakeOff(s);
 
-    // 2. Read WASD / Arrow inputs
+    // 2. Read WASD / Arrow inputs & double-tap W sprint detection
     let throttle = 0;
     let turnInput = 0;
     if (keyState.KeyW || keyState.ArrowUp) throttle += 1;
     if (keyState.KeyS || keyState.ArrowDown) throttle -= 1;
     if (keyState.KeyA || keyState.ArrowLeft) turnInput += 1; // Turn left (+yaw)
     if (keyState.KeyD || keyState.ArrowRight) turnInput -= 1; // Turn right (-yaw)
+
+    const wDown = Boolean(keyState.KeyW || keyState.ArrowUp);
+    const shiftDown = Boolean(keyState.ShiftLeft || keyState.ShiftRight);
+
+    // Double-tap W detection (within 350ms) or Shift hold triggers sprint paddling
+    if (paddling) {
+      if (wDown && !this.prevWDown) {
+        const now = performance.now();
+        if (now - this.lastWPressTime < 350) {
+          this.isSprinting = true;
+          this.showToast('⚡ SPRINT PADDLING!');
+        }
+        this.lastWPressTime = now;
+      }
+      if (!wDown) {
+        this.isSprinting = false;
+      }
+      if (shiftDown && wDown) {
+        this.isSprinting = true;
+      }
+    } else {
+      this.isSprinting = false;
+    }
+    this.prevWDown = wDown;
 
     // Duck dive mechanics:
     // When paddling/waiting in the lineup or paddling for waves, pressing S initiates or maintains a duck dive
@@ -444,39 +711,65 @@ export class SurferPovController {
     const dirX = Math.sin(this.yaw);
     const dirZ = Math.cos(this.yaw);
 
-    // 4. Hydrodynamic Wave-Face Gravity + Pocket Trim Push + Surfer Paddling
+    // 4. Hydrodynamic Wave-Face Gravity + Downhill Drop Plunge + Pocket Trim + Rail Carving
     // Down-slope vector points in -gradEta (down the front of the wave)
     const slopeMag = Math.hypot(s.gradX, s.gradZ);
+    const downSlopeX = slopeMag > 0.001 ? -s.gradX / slopeMag : 0.0;
+    const downSlopeZ = slopeMag > 0.001 ? -s.gradZ / slopeMag : 1.0;
+
     const onFrontFace = !paddling && s.frontSlope > 0.012 && s.eta > 0.18;
 
-    // Wave gravity acceleration down the face (much gentler while lying prone paddling)
-    const waveGravScale = paddling ? 4.0 : onFrontFace ? 16.5 : 8.5;
+    // 1) Wave gravity acceleration down the face:
+    // Strongly boosted so dropping down the face feels thrilling, punchy, and fast!
+    const waveGravScale = paddling ? 4.5 : onFrontFace ? 34.0 : 12.0;
     let ax = -s.gradX * waveGravScale;
     let az = -s.gradZ * waveGravScale;
 
-    // Pocket trim propulsion: only once standing and riding the wave
+    // 2) Downhill drop plunge acceleration:
+    // When aiming down the face of the wave, gravitational potential energy rapidly converts to speed!
+    const downhillAlignment = Math.max(0.0, dirX * downSlopeX + dirZ * downSlopeZ);
+    if (onFrontFace && downhillAlignment > 0.05) {
+      const dropBoost = downhillAlignment * (6.5 + s.frontSlope * 24.0);
+      ax += dirX * dropBoost;
+      az += dirZ * dropBoost;
+    }
+
+    // 3) Pocket trim propulsion down the line
     if (onFrontFace) {
-      const pocketDrive = (2.8 + s.bTube * 4.6 + Math.min(1.5, s.eta) * 2.2) * smoothstep(0.02, 0.18, s.frontSlope);
-      ax += (dirX * 0.72 + s.kHatX * 0.28) * pocketDrive;
-      az += (dirZ * 0.72 + s.kHatZ * 0.28) * pocketDrive;
+      const pocketDrive = (3.4 + s.bTube * 5.4 + Math.min(1.8, s.eta) * 2.6) * smoothstep(0.02, 0.18, s.frontSlope);
+      ax += (dirX * 0.74 + s.kHatX * 0.26) * pocketDrive;
+      az += (dirZ * 0.74 + s.kHatZ * 0.26) * pocketDrive;
+    }
+
+    // 4) Rail Carving / Pumping Drive:
+    // In real surfing, rail carving transfers centripetal water force into forward projection ("pumping for speed").
+    // Carving S-turns or bottom turns with A / D generates positive forward thrust!
+    const isCarving = onFrontFace && Math.abs(turnInput) > 0.12;
+    if (isCarving) {
+      const railDrive = Math.abs(turnInput) * (3.8 + Math.min(4.8, curSpeed * 0.45)) * smoothstep(0.02, 0.18, s.frontSlope);
+      ax += dirX * railDrive;
+      az += dirZ * railDrive;
     }
 
     // Surfer W/S input:
-    // Paddling: W = paddle forward, S = duck dive under waves. Riding: W = pump down the face, S = stall into the barrel
+    // Paddling: W = paddle forward, S = duck dive under waves.
+    // Riding: W = pump/drive forward down the line, S = stall into the barrel
     if (paddling) {
       if (isDuckDiving) {
         // Momentum pushes forward underwater through the wave
         ax += dirX * 1.8;
         az += dirZ * 1.8;
       } else if (throttle > 0) {
-        ax += dirX * 3.4;
-        az += dirZ * 3.4;
-        this.paddlePhase += dt * 6.5;
+        const sprintMult = this.isSprinting ? 2.15 : 1.0;
+        ax += dirX * (3.4 * sprintMult);
+        az += dirZ * (3.4 * sprintMult);
+        this.paddlePhase += dt * (this.isSprinting ? 12.0 : 6.5);
       } else {
         this.paddlePhase += dt * 1.2;
       }
     } else if (throttle > 0) {
-      const boost = onFrontFace ? 6.2 : 4.4;
+      // W pump while riding adds extra leg compression drive down the line
+      const boost = onFrontFace ? 7.8 : 5.0;
       ax += dirX * boost;
       az += dirZ * boost;
       this.paddlePhase += dt * (onFrontFace ? 3.0 : 7.5);
@@ -496,18 +789,26 @@ export class SurferPovController {
     const forwardSpeed = this.vel.x * dirX + this.vel.z * dirZ;
     const lateralX = this.vel.x - dirX * forwardSpeed;
     const lateralZ = this.vel.z - dirZ * forwardSpeed;
-    const finGrip = Math.exp(-dt * (curSpeed > 2.5 ? 7.5 : 4.0));
-    const alignedSpeed = Math.max(-1.8, forwardSpeed);
+    const lateralMag = Math.hypot(lateralX, lateralZ);
+
+    // Dynamic rail bite: convert a portion of lateral slide momentum into forward speed during hard carves!
+    const railConvert = onFrontFace && Math.abs(turnInput) > 0.1 ? Math.min(2.8, lateralMag * 0.42) : 0.0;
+    const alignedSpeed = Math.max(-1.8, forwardSpeed + railConvert);
+    const finGrip = Math.exp(-dt * (curSpeed > 2.5 ? 9.5 : 5.0));
 
     this.vel.x = dirX * alignedSpeed + lateralX * finGrip;
     this.vel.z = dirZ * alignedSpeed + lateralZ * finGrip;
 
-    // Water drag & speed cap (max ~11.5 m/s riding, ~2.3 m/s paddling)
-    const dragRate = paddling ? 1.5 : onFrontFace ? 0.36 : 0.72;
+    // Water drag & speed cap:
+    // On the face, drag is gentle (0.26) so carving and bottom turns retain speed.
+    // Max riding speed scales up to 15.5 m/s (~56 km/h) when carving and dropping!
+    const dragRate = paddling ? 1.5 : onFrontFace ? (isCarving ? 0.20 : 0.26) : 0.65;
     this.vel.x *= Math.exp(-dt * dragRate);
     this.vel.z *= Math.exp(-dt * dragRate);
 
-    const maxSpeed = paddling ? 2.3 : 11.5;
+    const maxSpeed = paddling
+      ? (this.isSprinting ? 3.85 : 2.3)
+      : (isCarving || downhillAlignment > 0.25 ? 15.5 : 13.5);
     const newSpeed = Math.hypot(this.vel.x, this.vel.z);
     if (newSpeed > maxSpeed) {
       this.vel.x = (this.vel.x / newSpeed) * maxSpeed;
@@ -516,8 +817,11 @@ export class SurferPovController {
     this.speed = Math.hypot(this.vel.x, this.vel.z);
 
     // Advance position and keep within ocean bounds & off dry land
-    let nextX = Math.max(-128, Math.min(128, this.pos.x + this.vel.x * dt));
-    let nextZ = Math.max(-125, Math.min(82, this.pos.z + this.vel.z * dt));
+    const boundX = WORLD_SIZE * 0.46;
+    const boundZMin = -WORLD_SIZE * 0.46;
+    const boundZMax = WORLD_SIZE * 0.42;
+    let nextX = Math.max(-boundX, Math.min(boundX, this.pos.x + this.vel.x * dt));
+    let nextZ = Math.max(boundZMin, Math.min(boundZMax, this.pos.z + this.vel.z * dt));
 
     const nextSample = this.sampleSurface(nextX, nextZ, oceanParams);
     if (nextSample.depth < 0.22) {
@@ -563,9 +867,11 @@ export class SurferPovController {
       } else {
         this.statusLabel = takeOffReady
           ? '✅ On a wave face - press SPACE to take off!'
-          : throttle > 0
-            ? '🏊 Paddling - line up with an approaching wave'
-            : '🌊 Waiting in the lineup (W to paddle • S to Duck Dive)';
+          : this.isSprinting
+            ? '⚡ SPRINT PADDLING! (Double-Tap W)'
+            : throttle > 0
+              ? '🏊 Paddling - line up with an approaching wave'
+              : '🌊 Waiting in the lineup (W to paddle • Double-tap W to Sprint • S to Duck Dive)';
       }
     } else if (this.isInBarrel) {
       this.barrelTime += dt;
@@ -573,14 +879,20 @@ export class SurferPovController {
       this.statusLabel = `🌀 INSIDE THE BARREL! (${this.barrelTime.toFixed(1)}s Tube)`;
     } else if (this.isOnWave) {
       this.rideTime += dt;
-      this.statusLabel = slopeMag > 0.18 ? '⚡ Carving Steep Pocket Wall' : '🏄 Planing on Open Wave Face';
+      this.statusLabel = isCarving
+        ? '⚡ Hard Rail Carve! Pumping for Speed'
+        : downhillAlignment > 0.25
+        ? '🚀 Dropping Down Wave Face!'
+        : slopeMag > 0.18
+        ? '⚡ Carving Steep Pocket Wall'
+        : '🏄 Planing on Open Wave Face';
     } else {
       this.statusLabel = '🏄 Riding - keep your speed up';
     }
     if (this.toastTime > 0 && this.toast) this.statusLabel = `⚠ ${this.toast}`;
 
     // 6. Spawn Surfboard Rail Spray Particles when planing & carving
-    if (!paddling && this.speed > 3.4 && this.spraySystem) {
+    if (!paddling && this.speed > 3.4 && this.spraySystem && (oceanParams?.particlesWhitewater ?? false)) {
       const sprayCount = Math.abs(turnInput) > 0.1 ? 3 : 1;
       const rightX = -dirZ;
       const rightZ = dirX;
@@ -594,7 +906,8 @@ export class SurferPovController {
           1.1 + Math.random() * 1.4,
           -this.vel.z * 0.25 + rightZ * railSide * (1.8 + Math.random() * 1.4),
           0.32 + Math.random() * 0.25,
-          1.15 + Math.random() * 0.45
+          1.15 + Math.random() * 0.45,
+          PARTICLE_TYPE_BOARD_SPRAY
         );
       }
     }
@@ -607,7 +920,7 @@ export class SurferPovController {
       const divePitch = -0.65 * (1.0 - diveT * 1.6);
       wavePitch = THREE.MathUtils.lerp(wavePitch, divePitch, 0.85);
     }
-    const targetRoll = turnInput * 0.34 * Math.min(1.0, this.speed / 4.5);
+    const targetRoll = -turnInput * 0.44 * Math.min(1.0, this.speed / 4.0);
     this.pitch += (wavePitch - this.pitch) * Math.min(1.0, dt * 10.0);
     this.roll += (targetRoll - this.roll) * Math.min(1.0, dt * 10.0);
 
@@ -618,27 +931,116 @@ export class SurferPovController {
     this.boardGroup.rotation.x = this.pitch;
     this.boardGroup.rotation.z = this.roll;
 
-    // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.68m when paddling prone, 0.38m during duck dive
-    const targetStanceHeight = isDuckDiving ? 0.38 : paddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
-    this.currentEyeH = (this.currentEyeH ?? 1.4) + (targetStanceHeight - (this.currentEyeH ?? 1.4)) * Math.min(1.0, dt * 6.0);
-    const paddleBob = paddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
+    // 8. Animate 3D Surfer Figure & Poses
+    if (paddling) {
+      this.surferProneGroup.visible = true;
+      this.surferStandingGroup.visible = false;
+      if (isDuckDiving) {
+        // Hands gripping rails, head low to duck under oncoming crest
+        this.proneArmL.rotation.set(0.48, 0, 0.42);
+        this.proneArmR.rotation.set(0.48, 0, -0.42);
+        this.proneHead.rotation.x = -0.32;
+      } else if (throttle > 0) {
+        // Alternating freestyle paddling arm strokes
+        this.proneArmL.rotation.set(Math.sin(this.paddlePhase) * 1.15, 0, 0.25);
+        this.proneArmR.rotation.set(-Math.sin(this.paddlePhase) * 1.15, 0, -0.25);
+        this.proneHead.rotation.x = 0.22; // chin up looking ahead for sets
+      } else {
+        // Resting arms along the rails
+        this.proneArmL.rotation.set(0.12, 0, 0.32);
+        this.proneArmR.rotation.set(0.12, 0, -0.32);
+        this.proneHead.rotation.x = 0.12;
+      }
+    } else {
+      this.surferProneGroup.visible = false;
+      this.surferStandingGroup.visible = true;
 
-    const camX = this.pos.x - dirX * 0.18;
-    const camY = this.pos.y + this.currentEyeH + paddleBob;
-    const camZ = this.pos.z - dirZ * 0.18;
-    this.camera.position.set(camX, camY, camZ);
+      // Dynamic athletic crouch for speed and deep barrel tuck
+      const barrelCrouch = this.isInBarrel ? 0.25 : 0.0;
+      const speedCrouch = Math.min(0.12, (this.speed / 10) * 0.12);
+      this.surferStandingGroup.position.y = -(barrelCrouch + speedCrouch);
 
-    // Subtle camera roll banking when carving hard turns
-    this.camera.up.set(Math.sin(-this.roll * 0.35), Math.cos(this.roll * 0.35), 0).normalize();
+      // Body lean into carve turns (weight shift)
+      this.surferStandingGroup.rotation.z = -turnInput * 0.35;
+      this.surferStandingGroup.rotation.x = this.speed > 5.5 ? 0.06 : 0.0;
 
-    const totalYaw = this.yaw + this.lookYawOffset;
-    const totalPitch = this.pitch * 0.45 + this.lookPitchOffset;
-    const lookDist = 12.0;
-    const lookX = camX + Math.sin(totalYaw) * Math.cos(totalPitch) * lookDist;
-    const lookY = camY + Math.sin(totalPitch) * lookDist;
-    const lookZ = camZ + Math.cos(totalYaw) * Math.cos(totalPitch) * lookDist;
+      if (this.isInBarrel) {
+        // Deep tube crouch: lead arm reaching along the barrel wall, trailing arm tucked low
+        this.standArmL.rotation.set(-0.85, 0.32, -0.32);
+        this.standArmR.rotation.set(0.38, -0.32, 0.65);
+      } else {
+        // Athletic style: lead arm trims forward, trailing arm balances carves
+        this.standArmL.rotation.set(-0.52 - turnInput * 0.32, 0.20, -0.38);
+        this.standArmR.rotation.set(0.48 + turnInput * 0.32, -0.20, 0.42);
+      }
+    }
 
-    this.camera.lookAt(lookX, lookY, lookZ);
-    this.controls.target.set(lookX, lookY, lookZ);
+    // 9. Camera Pose (1st-Person POV vs 3rd-Person Low Bird-View)
+    if (this.viewMode === 'first_person') {
+      // In 1st-person POV, hide the surfer figure so the camera doesn't clip into its own head/body
+      this.surferFigureGroup.visible = false;
+
+      // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.68m when paddling prone, 0.38m during duck dive
+      const targetStanceHeight = isDuckDiving ? 0.38 : paddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
+      this.currentEyeH = (this.currentEyeH ?? 1.4) + (targetStanceHeight - (this.currentEyeH ?? 1.4)) * Math.min(1.0, dt * 6.0);
+      const paddleBob = paddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
+
+      const camX = this.pos.x - dirX * 0.18;
+      const camY = this.pos.y + this.currentEyeH + paddleBob;
+      const camZ = this.pos.z - dirZ * 0.18;
+      this.camera.position.set(camX, camY, camZ);
+
+      // Subtle camera roll banking when carving hard turns
+      this.camera.up.set(Math.sin(this.roll * 0.35), Math.cos(this.roll * 0.35), 0).normalize();
+
+      const totalYaw = this.yaw + this.lookYawOffset;
+      const totalPitch = this.pitch * 0.45 + this.lookPitchOffset;
+      const lookDist = 12.0;
+      const lookX = camX + Math.sin(totalYaw) * Math.cos(totalPitch) * lookDist;
+      const lookY = camY + Math.sin(totalPitch) * lookDist;
+      const lookZ = camZ + Math.cos(totalYaw) * Math.cos(totalPitch) * lookDist;
+
+      this.camera.lookAt(lookX, lookY, lookZ);
+      this.controls.target.set(lookX, lookY, lookZ);
+    } else {
+      // --- THIRD-PERSON LOW BIRD-VIEW (Drone chase perspective) ---
+      this.surferFigureGroup.visible = true;
+
+      const camDistBack = paddling ? 5.2 : 5.8;
+      const camHeightAbove = paddling ? 2.8 : 3.4;
+
+      const effectiveYaw = this.yaw + this.lookYawOffset;
+      const camTargetX = this.pos.x - Math.sin(effectiveYaw) * camDistBack;
+      let camTargetY = this.pos.y + camHeightAbove - Math.sin(this.lookPitchOffset) * 2.6;
+      const camTargetZ = this.pos.z - Math.cos(effectiveYaw) * camDistBack;
+
+      // Prevent camera from clipping under the displaced ocean surface
+      const camWaterSample = this.sampleSurface(camTargetX, camTargetZ, oceanParams);
+      const minCamY = (camWaterSample.surfaceY ?? 0) + 0.65;
+      if (camTargetY < minCamY) {
+        camTargetY = minCamY;
+      }
+
+      // Smooth camera trailing with lerp for action-drone feel
+      if (!this.camPosSmoothed) {
+        this.camPosSmoothed = new THREE.Vector3(camTargetX, camTargetY, camTargetZ);
+        this.camLookSmoothed = new THREE.Vector3(this.pos.x, this.pos.y + 0.8, this.pos.z);
+      }
+      this.camPosSmoothed.lerp(new THREE.Vector3(camTargetX, camTargetY, camTargetZ), Math.min(1.0, dt * 9.0));
+      this.camera.position.copy(this.camPosSmoothed);
+
+      // Camera roll: banking smoothly with board carve roll
+      this.camera.up.set(Math.sin(-this.roll * 0.22), Math.cos(this.roll * 0.22), 0).normalize();
+
+      // Look target: points down the line ahead of the surfer
+      const leadDist = paddling ? 3.0 : 4.5;
+      const targetLookX = this.pos.x + Math.sin(effectiveYaw) * leadDist;
+      const targetLookY = this.pos.y + 0.8 + Math.sin(this.lookPitchOffset) * 2.2;
+      const targetLookZ = this.pos.z + Math.cos(effectiveYaw) * leadDist;
+
+      this.camLookSmoothed.lerp(new THREE.Vector3(targetLookX, targetLookY, targetLookZ), Math.min(1.0, dt * 11.0));
+      this.camera.lookAt(this.camLookSmoothed);
+      this.controls.target.copy(this.camLookSmoothed);
+    }
   }
 }

@@ -135,7 +135,7 @@ export class HydroWaveSolver {
     const T1 = Math.max(5.0, oceanParams.swellPeriod ?? 14.0);
     const wavesPerSet = Math.max(2.0, oceanParams.wavesPerSet ?? 6.0);
     const setPeriodSec = wavesPerSet * T1;
-    const groupFactor = Math.max(0.0, Math.min(1.0, (oceanParams.swellGrouping ?? 65) / 100));
+    const groupFactor = Math.max(0.0, Math.min(1.0, (oceanParams.swellGrouping ?? 10) / 100));
 
     if (groupFactor <= 0.05) {
       return { groupEnv: 1.0, setPacket: 1.0, groupPhase: 0.0, setPeriodSec };
@@ -144,7 +144,7 @@ export class HydroWaveSolver {
     const omegaGroup = (2.0 * Math.PI) / setPeriodSec;
     const cGroup = 0.78 * refC;
     const kGroup = omegaGroup / cGroup;
-    const sSurfZone = -12.0 * kz1;
+    const sSurfZone = -60.0 * kz1;
     // Offset by 6.0s so right after the 6s PDE warmup, the set peak is centered right across the surf zone
     const groupPhase = kGroup * (s1 - sSurfZone) - omegaGroup * (t - 6.0);
 
@@ -216,12 +216,12 @@ export class HydroWaveSolver {
     // 1. Boundary Wave-Maker & Sponge Relaxation Zone
     for (let j = 0; j < N; j++) {
       const z = (j / (N - 1) - 0.5) * WORLD_SIZE;
-      const offshoreWeight = j < 14 ? Math.pow(1.0 - j / 14.0, 1.7) : 0.0;
+      const offshoreWeight = j < 16 ? Math.pow(1.0 - j / 16.0, 1.7) : 0.0;
 
       for (let i = 0; i < N; i++) {
         const sideDist = Math.min(i, N - 1 - i);
         const sideWeight =
-          sideDist < 7 && z < 45 ? Math.pow(1.0 - sideDist / 7.0, 2.0) * smoothstep(45, -10, z) : 0.0;
+          sideDist < 8 && z < 120 ? Math.pow(1.0 - sideDist / 8.0, 2.0) * smoothstep(120, -50, z) : 0.0;
         const alpha = Math.max(offshoreWeight, sideWeight);
         if (alpha <= 0.0001) continue;
 
@@ -673,7 +673,7 @@ export class HydroWaveSolver {
     const T1 = Math.max(5.0, oceanParams.swellPeriod ?? 14.0);
     const wavesPerSet = Math.max(2.0, oceanParams.wavesPerSet ?? 6.0);
     const setCycleSec = Math.round(wavesPerSet * T1);
-    const grouping = oceanParams.swellGrouping ?? 45.0;
+    const grouping = oceanParams.swellGrouping ?? 10.0;
 
     if (grouping <= 5.0) {
       return {
@@ -689,7 +689,7 @@ export class HydroWaveSolver {
     const refC = Math.sqrt(GRAVITY * refDepth);
     const dir1 = ((oceanParams.swellDir ?? 0.0) * Math.PI) / 180;
     const kz1 = Math.cos(dir1);
-    const sTakeoff = -38.0 * kz1;
+    const sTakeoff = -140.0 * kz1;
     const { groupPhase, setPacket } = this.evalGroupEnvelope(sTakeoff, this.simTime, oceanParams, refC, kz1);
 
     // Normalize advancing cycle angle psi in [0, 2*PI), where 0 (and 2*PI) is the exact Set Peak

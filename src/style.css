@@ -80,6 +80,61 @@ body, html {
   color: var(--text-muted);
 }
 
+.fps-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(11, 22, 34, 0.78);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-left: 8px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.fps-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.75);
+  flex-shrink: 0;
+}
+.fps-dot.warn {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.75);
+}
+.fps-dot.bad {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.75);
+}
+
+.fps-badge strong {
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.fps-badge small {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.fps-ms {
+  font-size: 10px;
+  color: var(--accent-cyan);
+  opacity: 0.88;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  padding-left: 6px;
+  margin-left: 2px;
+}
+
 .top-controls {
   display: flex;
   align-items: center;
@@ -414,10 +469,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 #bathymetry-minimap {
   width: 100%;
-  height: 132px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  height: 135px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background: #041322;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.5);
 }
 
 .minimap-legend {
@@ -440,6 +496,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .dot.deep { background: #0c4a6e; }
 .dot.reef { background: #22d3ee; }
 .dot.sand { background: #eab308; }
+.dot.player {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.85);
+}
 
 /* Bottom Telemetry Bar */
 .telemetry-bar {
@@ -514,8 +575,33 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .hidden { display: none !important; }
 
 .surf-cta-btn {
-  background: linear-gradient(135deg, #0891b2, #0d9488);
-  border-color: #22d3ee;
+  background: linear-gradient(135deg, #0284c7, #0891b2);
+  border-color: #38bdf8;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+}
+.surf-cta-btn:hover {
+  background: linear-gradient(135deg, #0369a1, #0e7490);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.55);
+}
+
+.surf-pov-sub-btn {
+  background: linear-gradient(135deg, #0d9488, #059669);
+  border-color: #2dd4bf;
+  color: #fff;
+}
+.surf-pov-sub-btn:hover {
+  background: linear-gradient(135deg, #0f766e, #047857);
+}
+
+#surf-view-toggle-btn {
+  border-color: #38bdf8;
+  background: rgba(14, 116, 144, 0.25);
+  color: #e0f2fe;
+}
+#surf-view-toggle-btn:hover {
+  background: rgba(56, 189, 248, 0.35);
+  border-color: #7dd3fc;
 }
 
 .surf-hud {
@@ -587,6 +673,50 @@ input[type="range"]::-webkit-slider-thumb:hover {
   padding: 1px 5px;
   color: #fff;
   font-family: inherit;
+}
+
+/* Floating HUD Bathymetry Depth Radar */
+.surf-hud-map-card {
+  position: absolute;
+  top: 92px;
+  right: 18px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 8px 10px;
+  pointer-events: auto;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 10;
+}
+.surf-hud-map-card.hidden {
+  display: none !important;
+}
+.surf-hud-map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent-cyan);
+}
+#surf-hud-depth-tag {
+  color: #fbbf24;
+  font-weight: 800;
+  font-size: 10px;
+}
+#surf-hud-minimap {
+  width: 160px;
+  height: 105px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #041322;
+  display: block;
 }
 
 /* Keep the top bar on one row with the extra POV button */

@@ -299,7 +299,7 @@ export class BeachCrowdSystem {
     const step = 4.0;
     const bound = WORLD_SIZE * 0.45; // Stay within [-135m, +135m]
 
-    for (let z = -65; z <= bound; z += step) {
+    for (let z = -bound; z <= bound; z += step) {
       for (let x = -bound; x <= bound; x += step) {
         const s = btyManager.sampleAt(x, z);
         const h = s.elevation;

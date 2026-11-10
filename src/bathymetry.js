@@ -1,7 +1,45 @@
 import * as THREE from 'three';
 
-export const WORLD_SIZE = 300; // 300m x 300m coastal surf zone
-export const BTY_RES = 160;    // 160x160 bathymetry simulation grid
+export const WORLD_SIZE = 600; // 600m x 600m domain (4x area expansion)
+export const BTY_RES = 180;    // 180x180 bathymetry simulation grid
+
+// Spline samples extracted from reference bathymetry drawing across u in [0, 1]
+export const COAST_SAMPLES = [
+  0.824, 0.824, 0.824, 0.824, 0.824, 0.824, 0.823, 0.821, 0.821, 0.81, 0.792,
+  0.772, 0.748, 0.725, 0.697, 0.671, 0.641, 0.612, 0.584, 0.544, 0.505, 0.45,
+  0.391, 0.344, 0.324, 0.319, 0.328, 0.352, 0.453, 0.641, 0.695, 0.709, 0.718
+];
+export const REEF_SAMPLES = [
+  0.701, 0.701, 0.696, 0.691, 0.69, 0.688, 0.682, 0.675, 0.661, 0.647, 0.626,
+  0.599, 0.571, 0.535, 0.493, 0.444, 0.396, 0.356, 0.321, 0.289, 0.272, 0.261,
+  0.254, 0.25, 0.25, 0.26, 0.278, 0.3, 0.339, 0.554, 0.651, 0.675, 0.687
+];
+export const SHELF_SAMPLES = [
+  0.587, 0.587, 0.58, 0.57, 0.56, 0.54, 0.51, 0.47, 0.42, 0.37, 0.32,
+  0.27, 0.23, 0.20, 0.18, 0.17, 0.16, 0.155, 0.15, 0.145, 0.14, 0.135,
+  0.132, 0.13, 0.13, 0.135, 0.14, 0.15, 0.18, 0.25, 0.38, 0.48, 0.52
+];
+
+export function evalCurve(samples, u) {
+  const n = samples.length - 1;
+  const clampedU = Math.max(0, Math.min(1, u));
+  const t = clampedU * n;
+  const i0 = Math.floor(t);
+  const frac = t - i0;
+  if (i0 >= n) return samples[n];
+
+  const p0 = samples[Math.max(0, i0 - 1)];
+  const p1 = samples[i0];
+  const p2 = samples[Math.min(n, i0 + 1)];
+  const p3 = samples[Math.min(n, i0 + 2)];
+
+  const a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+  const b = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3;
+  const c = -0.5 * p0 + 0.5 * p2;
+  const d = p1;
+
+  return ((a * frac + b) * frac + c) * frac + d;
+}
 
 function hash2(x, y) {
   const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
@@ -80,6 +118,12 @@ export class BathymetryManager {
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
 
+    // Minimap offscreen cache for smooth real-time player tracking
+    this.minimapOffscreen = null;
+    this.minimapDirty = true;
+    this.lastTideLevel = null;
+    this.lastSwellDir = null;
+
     this.createTerrainMesh();
     this.generatePreset(this.preset);
   }
@@ -130,52 +174,46 @@ export class BathymetryManager {
         const rx = x * cosA - z * sinA;
         const rz = x * sinA + z * cosA;
 
-        const normZ = (z + 150) / 300;
-        const rockNoise = fbm(x * 0.03, z * 0.03, 3);
-        const fineNoise = fbm(x * 0.07, z * 0.07, 2) * 0.25;
+        const normZ = (z + WORLD_SIZE * 0.5) / WORLD_SIZE;
+        const rockNoise = fbm(x * 0.02, z * 0.02, 3);
+        const fineNoise = fbm(x * 0.05, z * 0.05, 2) * 0.25;
 
-        // Base coastal shelf profile: -13.5m offshore (z=-150) shoaling smoothly to -2.2m nearshore (z=+75)
-        let h = -11.8 * Math.pow(1.0 - normZ, 1.15 * seabedSlope) - 1.6;
+        // Base coastal shelf profile
+        let h = -12.5 * Math.pow(1.0 - normZ, 1.15 * seabedSlope) - 1.6;
         let isAboveWaterStructure = false;
 
         if (presetName === 'right_point') {
-          // RIGHT POINT BREAK (e.g., Rincon / Malibu / Jeffreys Bay):
-          // Surfer rides toward +z (shore), peeling to surfer's RIGHT (-x).
-          // High rocky headland promontory juts out on the +x side (x > +32, reaching z = -46),
-          // curving back into a recessed sandy bay beach on the -x side (shoreline at z = +66).
-          const shoreCurveZ = 66 - 112 * smoothstep(-25, 110, x) + Math.sin(x * 0.035) * 3.5;
+          // RIGHT POINT BREAK MATCHING REFERENCE BATHYMETRY DRAWING:
+          // Expanded 600m x 600m domain with 4 color-depth zones:
+          // 1. Deep Ocean (v < sv)
+          // 2. Mid-Depth Shelf (sv <= v < rv)
+          // 3. Shallow Peeling Reef (rv <= v < cv)
+          // 4. Headland Hill & Shore (v >= cv)
+          const cv = evalCurve(COAST_SAMPLES, u);
+          const rv = evalCurve(REEF_SAMPLES, u);
+          const sv = evalCurve(SHELF_SAMPLES, u);
 
-          // Progressive foreshore shoaling ramp leading up to the curving shoreline
-          const shoreRamp = 3.4 * smoothstep(shoreCurveZ - 48, shoreCurveZ - 6, z);
-          h += shoreRamp;
-
-          // Above-water headland cliff & curving bay beach
-          if (z > shoreCurveZ - 16) {
-            const landProgress = smoothstep(shoreCurveZ - 14, shoreCurveZ + 42, z);
-            const isHeadland = smoothstep(2, 72, x);
-            const landElev = landProgress * (5.2 + 14.0 * isHeadland) + rockNoise * (0.4 + 1.8 * isHeadland);
-            if (z > shoreCurveZ - 2) isAboveWaterStructure = true;
-            h = Math.max(h, -1.4 + landElev);
-          }
-
-          // Submerged diagonal cobblestone/reef point bar extended further out off the shore/cliff
-          // Spans from outer take-off peak (x=+50, z=-78) down along the peeling wall to (x=-65, z=+25),
-          // keeping the breaking wave ~25-35m safely offshore away from the rocky headland cliff!
-          const barAxisZ = -70 + (48 - rx) * 0.88;
-          const distFromBar = rz - barAxisZ;
-          const barWidth = distFromBar < 0 ? 22.0 : 34.0;
-          const pointBarMask =
-            Math.exp(-(distFromBar * distFromBar) / (2 * barWidth * barWidth)) *
-            smoothstep(-80, -10, x) *
-            smoothstep(125, 30, x);
-
-          const barRise = 5.2 * reefProminence * pointBarMask;
-          // Deeper bay shoulder & channel on the outside (-x) so the wave has a clean, wide open face
-          const bayChannel = -2.8 * channelDepth * smoothstep(18, -55, x) * smoothstep(42, -65, z);
-
-          if (!isAboveWaterStructure) {
-            h += barRise + bayChannel + fineNoise * 0.5;
-            h = softCapUnderwater(h, -1.15);
+          if (v >= cv) {
+            // Above-water headland hill & sandy shoreline
+            const distLand = (v - cv) * WORLD_SIZE;
+            const isHeadland = smoothstep(0.40, 0.76, u) * smoothstep(0.96, 0.78, u);
+            const landElev = smoothstep(0.0, 42.0, distLand) * (6.5 + 20.0 * isHeadland) + Math.abs(rockNoise) * (0.4 + 2.2 * isHeadland);
+            if (distLand > 1.2) isAboveWaterStructure = true;
+            h = -0.4 + landElev;
+          } else if (v >= rv) {
+            // Shallow breaking reef shelf (cyan band)
+            const tReef = (v - rv) / Math.max(0.001, cv - rv);
+            const apexProximity = Math.exp(-((u - 0.76) * (u - 0.76)) / (2 * 0.09 * 0.09));
+            h = -3.0 + 2.45 * Math.pow(tReef, 0.85) * reefProminence + apexProximity * 0.45 * reefProminence + fineNoise * 0.25;
+            h = softCapUnderwater(h, -0.65);
+          } else if (v >= sv) {
+            // Mid-depth ocean shelf (blue band)
+            const tMid = (v - sv) / Math.max(0.001, rv - sv);
+            h = -8.2 + 5.2 * smoothstep(0.0, 1.0, tMid) * seabedSlope + fineNoise * 0.15;
+          } else {
+            // Deep offshore ocean (navy band)
+            const tDeep = Math.max(0.0, Math.min(1.0, v / Math.max(0.001, sv)));
+            h = -16.0 + 7.8 * tDeep * seabedSlope;
           }
         } else if (presetName === 'left_point') {
           // LEFT POINT BREAK (e.g., Raglan / Chicama / Mundaka):
@@ -420,6 +458,7 @@ export class BathymetryManager {
   }
 
   recomputeDerivedFields() {
+    this.minimapDirty = true;
     const cellStep = WORLD_SIZE / (BTY_RES - 1);
 
     // 1. Combine base elevation + sculpt offset
@@ -628,76 +667,199 @@ export class BathymetryManager {
     };
   }
 
-  renderMinimap(canvas, tideLevel, swellDirDeg) {
+  renderMinimap(canvas, tideLevel, swellDirDeg, playerInfo = null) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
-    const imgData = ctx.createImageData(w, h);
-    const data = imgData.data;
 
-    for (let py = 0; py < h; py++) {
-      const v = py / (h - 1);
-      const j = Math.min(BTY_RES - 1, Math.floor(v * BTY_RES));
-
-      for (let px = 0; px < w; px++) {
-        const u = px / (w - 1);
-        const i = Math.min(BTY_RES - 1, Math.floor(u * BTY_RES));
-        const elev = this.elevation[j * BTY_RES + i];
-        const depth = tideLevel - elev;
-
-        let r = 10, g = 30, b = 55;
-        if (depth <= 0) {
-          const land = Math.min(1, -depth / 8.0);
-          r = 215 - land * 95;
-          g = 185 - land * 65;
-          b = 115 - land * 45;
-        } else if (depth < 3.6) {
-          // Highlight the active shallow shoaling reef/sandbar/point contour in bright aqua
-          const t = Math.max(0, Math.min(1, (depth - 1.5) / 2.1));
-          r = Math.floor(34 * (1 - t) + 18 * t);
-          g = Math.floor(215 * (1 - t) + 135 * t);
-          b = Math.floor(238 * (1 - t) + 185 * t);
-        } else {
-          // Deep channels & offshore water in dark navy
-          const t = Math.min(1, (depth - 3.6) / 12.0);
-          r = Math.floor(18 * (1 - t) + 6 * t);
-          g = Math.floor(135 * (1 - t) + 32 * t);
-          b = Math.floor(185 * (1 - t) + 68 * t);
-        }
-
-        if (depth > 0 && Math.abs((depth % 2.0) - 1.0) < 0.08) {
-          r = Math.min(255, r + 24);
-          g = Math.min(255, g + 28);
-          b = Math.min(255, b + 32);
-        }
-
-        const pIdx = (py * w + px) * 4;
-        data[pIdx + 0] = r;
-        data[pIdx + 1] = g;
-        data[pIdx + 2] = b;
-        data[pIdx + 3] = 255;
+    // Check if background depth map needs to be recomputed
+    if (
+      this.minimapDirty ||
+      !this.minimapOffscreen ||
+      this.minimapOffscreen.width !== w ||
+      this.minimapOffscreen.height !== h ||
+      this.lastTideLevel !== tideLevel ||
+      this.lastSwellDir !== swellDirDeg
+    ) {
+      if (!this.minimapOffscreen) {
+        this.minimapOffscreen = document.createElement('canvas');
       }
+      this.minimapOffscreen.width = w;
+      this.minimapOffscreen.height = h;
+      const offCtx = this.minimapOffscreen.getContext('2d');
+      const imgData = offCtx.createImageData(w, h);
+      const data = imgData.data;
+
+      for (let py = 0; py < h; py++) {
+        const v = py / (h - 1);
+        const fvFull = v * (BTY_RES - 1);
+        const j0 = Math.floor(fvFull);
+        const j1 = Math.min(BTY_RES - 1, j0 + 1);
+        const fv = fvFull - j0;
+
+        for (let px = 0; px < w; px++) {
+          const u = px / (w - 1);
+          const fuFull = u * (BTY_RES - 1);
+          const i0 = Math.floor(fuFull);
+          const i1 = Math.min(BTY_RES - 1, i0 + 1);
+          const fu = fuFull - i0;
+
+          const e00 = this.elevation[j0 * BTY_RES + i0];
+          const e10 = this.elevation[j0 * BTY_RES + i1];
+          const e01 = this.elevation[j1 * BTY_RES + i0];
+          const e11 = this.elevation[j1 * BTY_RES + i1];
+          const elev = (e00 * (1 - fu) + e10 * fu) * (1 - fv) + (e01 * (1 - fu) + e11 * fu) * fv;
+          const depth = tideLevel - elev;
+
+          let r = 14, g = 2, b = 78;
+
+          if (depth <= 0.0) {
+            // Dry land / beach
+            const landDist = -depth;
+            if (landDist < 0.65 || py >= h - 6) {
+              // Warm golden shoreline sand
+              r = 185;
+              g = 170;
+              b = 95;
+            } else {
+              // Olive green headland hill terrain (matches reference drawing)
+              r = 108;
+              g = 135;
+              b = 67;
+            }
+          } else if (depth < 3.3) {
+            // Shallow breaking shelf / reef: luminous electric cyan (matches reference drawing)
+            r = 0;
+            g = 219;
+            b = 248;
+          } else if (depth < 8.2) {
+            // Mid-depth oceanic band (matches reference drawing)
+            r = 0;
+            g = 64;
+            b = 133;
+          } else {
+            // Deep offshore ocean: dark indigo navy (matches reference drawing)
+            r = 14;
+            g = 2;
+            b = 78;
+
+            // Subtle isobath contour rings (depth interval 2.5m)
+            const contourStep = 2.5;
+            const frac = (depth % contourStep) / contourStep;
+            const dist = Math.min(frac, 1.0 - frac) * contourStep;
+            if (dist < 0.16) {
+              const lineAlpha = Math.max(0, 1.0 - dist / 0.16) * 0.40;
+              r = Math.min(255, Math.floor(r * (1 - lineAlpha) + 26 * lineAlpha));
+              g = Math.min(255, Math.floor(g * (1 - lineAlpha) + 85 * lineAlpha));
+              b = Math.min(255, Math.floor(b * (1 - lineAlpha) + 155 * lineAlpha));
+            }
+          }
+
+          const pIdx = (py * w + px) * 4;
+          data[pIdx + 0] = r;
+          data[pIdx + 1] = g;
+          data[pIdx + 2] = b;
+          data[pIdx + 3] = 255;
+        }
+      }
+
+      offCtx.putImageData(imgData, 0, 0);
+
+      // Swell direction arrow (pure white stem + bright cyan circle head)
+      const rad = (swellDirDeg * Math.PI) / 180;
+      const cx = w * 0.5;
+      const cy = 20;
+      const arrowLen = 13;
+      const dx = Math.sin(rad) * arrowLen;
+      const dy = Math.cos(rad) * arrowLen;
+
+      offCtx.strokeStyle = '#ffffff';
+      offCtx.lineWidth = 2.0;
+      offCtx.lineCap = 'round';
+      offCtx.beginPath();
+      offCtx.moveTo(cx - dx * 0.4, cy - dy * 0.4);
+      offCtx.lineTo(cx + dx * 0.5, cy + dy * 0.5);
+      offCtx.stroke();
+
+      offCtx.fillStyle = '#00d9f3';
+      offCtx.beginPath();
+      offCtx.arc(cx + dx * 0.5, cy + dy * 0.5, 3.5, 0, Math.PI * 2);
+      offCtx.fill();
+
+      this.minimapDirty = false;
+      this.lastTideLevel = tideLevel;
+      this.lastSwellDir = swellDirDeg;
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    // Draw cached bathymetry background
+    ctx.drawImage(this.minimapOffscreen, 0, 0);
 
-    const rad = (swellDirDeg * Math.PI) / 180;
-    const cx = w * 0.5;
-    const cy = 18;
-    const dx = Math.sin(rad) * 14;
-    const dy = Math.cos(rad) * 14;
+    // Render real-time Player Location (Tiny at-scale white surfboard)
+    if (playerInfo) {
+      const u = playerInfo.x / WORLD_SIZE + 0.5;
+      const v = playerInfo.z / WORLD_SIZE + 0.5;
+      const px = Math.max(3, Math.min(w - 3, u * (w - 1)));
+      const py = Math.max(3, Math.min(h - 3, v * (h - 1)));
 
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - dx * 0.6, cy - dy * 0.6);
-    ctx.lineTo(cx + dx * 0.6, cy + dy * 0.6);
-    ctx.stroke();
+      // 1. Subtle Surfing Wake / Carve Trail
+      if (playerInfo.active && playerInfo.trail && playerInfo.trail.length > 1) {
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (let t = 1; t < playerInfo.trail.length; t++) {
+          const p0 = playerInfo.trail[t - 1];
+          const p1 = playerInfo.trail[t];
+          const u0 = p0.x / WORLD_SIZE + 0.5;
+          const v0 = p0.z / WORLD_SIZE + 0.5;
+          const u1 = p1.x / WORLD_SIZE + 0.5;
+          const v1 = p1.z / WORLD_SIZE + 0.5;
+          const normProg = t / playerInfo.trail.length;
+          ctx.lineWidth = 0.7 + normProg * 0.9;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${normProg * 0.40})`;
+          ctx.beginPath();
+          ctx.moveTo(u0 * (w - 1), v0 * (h - 1));
+          ctx.lineTo(u1 * (w - 1), v1 * (h - 1));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
 
-    ctx.fillStyle = '#22d3ee';
-    ctx.beginPath();
-    ctx.arc(cx + dx * 0.6, cy + dy * 0.6, 3, 0, Math.PI * 2);
-    ctx.fill();
+      // 2. Tiny at-scale directional white surfboard (oriented along player yaw heading)
+      // On canvas, X is right and Y is down (+Z).
+      const headingAngle = Math.atan2(Math.cos(playerInfo.yaw ?? 0), Math.sin(playerInfo.yaw ?? 0));
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(headingAngle);
+
+      // Subtle drop shadow so white board pops against light beach foam and reef
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+      ctx.shadowBlur = 2.5;
+
+      // Scaled surfboard geometry: length ~5.8px, width ~2.4px
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.75)';
+      ctx.lineWidth = 0.6;
+
+      ctx.beginPath();
+      ctx.moveTo(3.0, 0); // nose pointing in heading direction
+      ctx.bezierCurveTo(1.6, 1.25, -1.6, 1.25, -2.8, 0.75); // right rail
+      ctx.lineTo(-2.8, -0.75); // tail block
+      ctx.bezierCurveTo(-1.6, -1.25, 1.6, -1.25, 3.0, 0); // left rail
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Stringer line
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-2.3, 0);
+      ctx.lineTo(2.5, 0);
+      ctx.stroke();
+
+      ctx.restore();
+    }
   }
 }

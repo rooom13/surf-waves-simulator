@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { WORLD_SIZE } from './bathymetry.js';
 
+export const PARTICLE_TYPE_BARREL = 1;
+export const PARTICLE_TYPE_WHITEWATER = 2;
+export const PARTICLE_TYPE_BOARD_SPRAY = 3;
+
 export class SprayParticleSystem {
   constructor(scene) {
     this.scene = scene;
@@ -12,6 +16,7 @@ export class SprayParticleSystem {
     this.maxLife = new Float32Array(this.count);
     this.sizes = new Float32Array(this.count);
     this.alphas = new Float32Array(this.count);
+    this.types = new Uint8Array(this.count);
 
     for (let i = 0; i < this.count; i++) {
       this.life[i] = 0;
@@ -19,6 +24,7 @@ export class SprayParticleSystem {
       this.positions[i * 3 + 1] = -200;
       this.sizes[i] = 1.0;
       this.alphas[i] = 0.0;
+      this.types[i] = 0;
     }
 
     const geom = new THREE.BufferGeometry();
@@ -74,12 +80,31 @@ export class SprayParticleSystem {
       this.life[i] = 0;
       this.positions[i * 3 + 1] = -200;
       this.alphas[i] = 0;
+      this.types[i] = 0;
     }
+    this.points.visible = false;
     this.points.geometry.attributes.position.needsUpdate = true;
     this.points.geometry.attributes.aAlpha.needsUpdate = true;
   }
 
-  spawnParticle(x, y, z, vx, vy, vz, maxL, size = 1.6) {
+  clearType(targetType) {
+    let changed = false;
+    for (let i = 0; i < this.count; i++) {
+      if (this.types[i] === targetType) {
+        this.life[i] = 0;
+        this.positions[i * 3 + 1] = -200;
+        this.alphas[i] = 0;
+        this.types[i] = 0;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.points.geometry.attributes.position.needsUpdate = true;
+      this.points.geometry.attributes.aAlpha.needsUpdate = true;
+    }
+  }
+
+  spawnParticle(x, y, z, vx, vy, vz, maxL, size = 1.6, type = PARTICLE_TYPE_BARREL) {
     const idx = this.spawnCursor;
     this.spawnCursor = (this.spawnCursor + 1) % this.count;
     this.positions[idx * 3 + 0] = x;
@@ -92,10 +117,16 @@ export class SprayParticleSystem {
     this.maxLife[idx] = maxL;
     this.sizes[idx] = size;
     this.alphas[idx] = 0.85;
+    this.types[idx] = type;
   }
 
   warmup(oceanParams, waveSolver, steps = 40) {
     this.clear();
+    const enableBarrel = oceanParams?.particlesBarrel ?? false;
+    const enableWhitewater = oceanParams?.particlesWhitewater ?? false;
+    const density = oceanParams?.particleDensity ?? 0.0;
+    if ((!enableBarrel && !enableWhitewater) || density <= 0.005) return;
+
     const dt = 0.03;
     for (let s = 0; s < steps; s++) {
       this.update(dt, oceanParams, waveSolver);
@@ -108,57 +139,89 @@ export class SprayParticleSystem {
     const N = waveSolver.N;
     const simTexData = waveSolver.simTexData;
 
+    const enableBarrel = oceanParams.particlesBarrel ?? false;
+    const enableWhitewater = oceanParams.particlesWhitewater ?? false;
+    const density = oceanParams.particleDensity !== undefined ? oceanParams.particleDensity : 0.0;
+    const canSpawn = (enableBarrel || enableWhitewater) && density > 0.005;
+
     // 1. Scan active breaking & pitching-lip cells across the surf zone to dissolve the falling lip into white foam particles
-    const stride = 1;
-    for (let j = 16; j < N - 16; j += stride) {
-      const wz = (j / (N - 1) - 0.5) * WORLD_SIZE;
-      if (wz < -58 || wz > 68) continue;
+    if (canSpawn) {
+      const stride = 1;
+      for (let j = 16; j < N - 16; j += stride) {
+        const wz = (j / (N - 1) - 0.5) * WORLD_SIZE;
+        if (wz < -58 || wz > 68) continue;
 
-      for (let i = 14; i < N - 14; i += stride) {
-        const idx = j * N + i;
-        const k4 = idx * 4;
-        const eta = simTexData[k4 + 0];
-        if (eta < 0.50) continue;
+        for (let i = 14; i < N - 14; i += stride) {
+          const idx = j * N + i;
+          const k4 = idx * 4;
+          const eta = simTexData[k4 + 0];
+          if (eta < 0.50) continue;
 
-        const dispX = simTexData[k4 + 1];
-        const dispZ = simTexData[k4 + 2];
-        const foam = simTexData[k4 + 3];
-        const bTube = Math.hypot(dispX, dispZ);
+          const dispX = simTexData[k4 + 1];
+          const dispZ = simTexData[k4 + 2];
+          const foam = simTexData[k4 + 3];
+          const bTube = Math.hypot(dispX, dispZ);
 
-        if (bTube < 0.20 && foam < 0.35) continue;
+          if (bTube < 0.20 && foam < 0.35) continue;
 
-        const wx = (i / (N - 1) - 0.5) * WORLD_SIZE;
-        const dirX = bTube > 0.01 ? dispX / bTube : 0.0;
-        const dirZ = bTube > 0.01 ? dispZ / bTube : 1.0;
+          const wx = (i / (N - 1) - 0.5) * WORLD_SIZE;
+          const dirX = bTube > 0.01 ? dispX / bTube : 0.0;
+          const dirZ = bTube > 0.01 ? dispZ / bTube : 1.0;
 
-        // A. Dissolving & Falling Barrel Lip Curtain (closes the barrel cylinder over the cavity!)
-        // Matches the 3D vertex displacement of the overhanging lip (+1.8m at crest tip arching out to +4.2m at base)
-        if (bTube > 0.24 && eta > 0.62 && foam < 0.86) {
-          const particlesPerCell = bTube > 0.50 ? 5 : 3;
-          for (let p = 0; p < particlesPerCell; p++) {
-            if (Math.random() > 0.84) continue;
+          // A. Dissolving & Falling Barrel Lip Curtain (closes the barrel cylinder over the cavity!)
+          // Matches the 3D vertex displacement of the overhanging lip (+1.8m at crest tip arching out to +4.2m at base)
+          if (enableBarrel && bTube > 0.24 && eta > 0.62 && foam < 0.86) {
+            const baseCount = bTube > 0.50 ? 5 : 3;
+            const particlesPerCell = Math.max(1, Math.round(baseCount * Math.min(1.0, density)));
+            for (let p = 0; p < particlesPerCell; p++) {
+              if (Math.random() > 0.84) continue;
 
-            // Spawn along the parabolic arc from the pitching lip tip (arcT=0) down to the closing curtain (arcT=1)
-            const arcT = Math.pow(Math.random(), 0.78);
-            const jitterAlongCrest = (Math.random() - 0.5) * 1.85;
-            const perpX = -dirZ * jitterAlongCrest;
-            const perpZ = dirX * jitterAlongCrest;
+              // Spawn along the parabolic arc from the pitching lip tip (arcT=0) down to the closing curtain (arcT=1)
+              const arcT = Math.pow(Math.random(), 0.78);
+              const jitterAlongCrest = (Math.random() - 0.5) * 1.85;
+              const perpX = -dirZ * jitterAlongCrest;
+              const perpZ = dirX * jitterAlongCrest;
 
-            // Starts right at the overhanging lip edge (+1.7m to +2.8m) and arches forward (+3.2m to +4.5m) in front of the recessed cavity
-            const forwardThrow = 1.65 + bTube * (1.15 + 1.65 * Math.sin(arcT * Math.PI * 0.56));
-            const px = wx + dirX * forwardThrow + perpX;
-            const pz = wz + dirZ * forwardThrow + perpZ;
+              // Starts right at the overhanging lip edge (+1.7m to +2.8m) and arches forward (+3.2m to +4.5m) in front of the recessed cavity
+              const forwardThrow = 1.65 + bTube * (1.15 + 1.65 * Math.sin(arcT * Math.PI * 0.56));
+              const px = wx + dirX * forwardThrow + perpX;
+              const pz = wz + dirZ * forwardThrow + perpZ;
 
-            // Parabolic vertical arch from the curling lip down to close the tube at water level
-            const crestTopY = tide + eta * (1.12 - 0.38 * foam);
-            const archY = Math.cos(arcT * Math.PI * 0.48);
-            const py = Math.max(tide + 0.16, tide + (crestTopY - tide) * archY + (Math.random() - 0.5) * 0.20);
+              // Parabolic vertical arch from the curling lip down to close the tube at water level
+              const crestTopY = tide + eta * (1.12 - 0.38 * foam);
+              const archY = Math.cos(arcT * Math.PI * 0.48);
+              const py = Math.max(tide + 0.16, tide + (crestTopY - tide) * archY + (Math.random() - 0.5) * 0.20);
 
-            // Forward + downward velocity along the closing barrel trajectory
-            const speedFwd = 2.8 + bTube * 1.6 + Math.random() * 0.85;
-            const vx = dirX * speedFwd + (Math.random() - 0.5) * 0.75;
-            const vz = dirZ * speedFwd + (Math.random() - 0.5) * 0.75;
-            const vy = -1.5 - arcT * 3.5 - Math.random() * 1.0;
+              // Forward + downward velocity along the closing barrel trajectory
+              const speedFwd = 2.8 + bTube * 1.6 + Math.random() * 0.85;
+              const vx = dirX * speedFwd + (Math.random() - 0.5) * 0.75;
+              const vz = dirZ * speedFwd + (Math.random() - 0.5) * 0.75;
+              const vy = -1.5 - arcT * 3.5 - Math.random() * 1.0;
+
+              this.spawnParticle(
+                px,
+                py,
+                pz,
+                vx,
+                vy,
+                vz,
+                0.45 + Math.random() * 0.45,
+                1.60 + bTube * 0.85 + Math.random() * 0.65,
+                PARTICLE_TYPE_BARREL
+              );
+            }
+          }
+
+          // B. Churning Whitewater Impact & Barrel Spit at the base of the closing barrel
+          if (enableWhitewater && bTube > 0.22 && foam > 0.28 && eta > 0.55 && Math.random() < 0.42 * Math.min(1.0, density)) {
+            const forwardBore = 2.0 + bTube * 2.2 + (Math.random() - 0.5) * 2.0;
+            const px = wx + dirX * forwardBore + (Math.random() - 0.5) * 1.8;
+            const pz = wz + dirZ * forwardBore + (Math.random() - 0.5) * 1.8;
+            const py = tide + Math.min(1.20, eta * 0.52) * Math.random() + 0.14;
+
+            const vx = dirX * (3.6 + Math.random() * 1.8) + (Math.random() - 0.5) * 1.3;
+            const vz = dirZ * (3.6 + Math.random() * 1.8) + (Math.random() - 0.5) * 1.3;
+            const vy = 0.28 + Math.random() * 1.20;
 
             this.spawnParticle(
               px,
@@ -167,33 +230,11 @@ export class SprayParticleSystem {
               vx,
               vy,
               vz,
-              0.45 + Math.random() * 0.45,
-              1.60 + bTube * 0.85 + Math.random() * 0.65
+              0.46 + Math.random() * 0.48,
+              1.55 + Math.random() * 0.75,
+              PARTICLE_TYPE_WHITEWATER
             );
           }
-        }
-
-        // B. Churning Whitewater Impact & Barrel Spit at the base of the closing barrel
-        if (bTube > 0.22 && foam > 0.28 && eta > 0.55 && Math.random() < 0.42) {
-          const forwardBore = 2.0 + bTube * 2.2 + (Math.random() - 0.5) * 2.0;
-          const px = wx + dirX * forwardBore + (Math.random() - 0.5) * 1.8;
-          const pz = wz + dirZ * forwardBore + (Math.random() - 0.5) * 1.8;
-          const py = tide + Math.min(1.20, eta * 0.52) * Math.random() + 0.14;
-
-          const vx = dirX * (3.6 + Math.random() * 1.8) + (Math.random() - 0.5) * 1.3;
-          const vz = dirZ * (3.6 + Math.random() * 1.8) + (Math.random() - 0.5) * 1.3;
-          const vy = 0.28 + Math.random() * 1.20;
-
-          this.spawnParticle(
-            px,
-            py,
-            pz,
-            vx,
-            vy,
-            vz,
-            0.46 + Math.random() * 0.48,
-            1.55 + Math.random() * 0.75
-          );
         }
       }
     }
@@ -201,10 +242,21 @@ export class SprayParticleSystem {
     // 2. Step particle kinematics & water-surface splash/churn
     const gravity = 11.2;
     const minWaterY = tide + 0.14;
+    let activeCount = 0;
 
     for (let i = 0; i < this.count; i++) {
       let l = this.life[i];
       if (l <= 0) continue;
+
+      // Clean up particle if its type was disabled
+      const t = this.types[i];
+      if ((!enableBarrel && t === PARTICLE_TYPE_BARREL) ||
+          (!enableWhitewater && (t === PARTICLE_TYPE_WHITEWATER || t === PARTICLE_TYPE_BOARD_SPRAY))) {
+        this.life[i] = 0;
+        this.positions[i * 3 + 1] = -200;
+        this.alphas[i] = 0.0;
+        continue;
+      }
 
       l += dt;
       const maxL = this.maxLife[i];
@@ -215,6 +267,7 @@ export class SprayParticleSystem {
         continue;
       }
       this.life[i] = l;
+      activeCount++;
 
       const i3 = i * 3;
       this.velocities[i3 + 1] -= gravity * dt;
@@ -242,6 +295,7 @@ export class SprayParticleSystem {
       this.alphas[i] = 0.90 * fadeIn * fadeOut;
     }
 
+    this.points.visible = activeCount > 0;
     this.points.geometry.attributes.position.needsUpdate = true;
     this.points.geometry.attributes.aSize.needsUpdate = true;
     this.points.geometry.attributes.aAlpha.needsUpdate = true;

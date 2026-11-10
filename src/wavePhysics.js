@@ -129,7 +129,7 @@ export function evaluateSurfTelemetry(oceanParams, btyManager) {
   const swellEnergyKJ = Math.round(H0 * H0 * T * 2.1 * wedgeBoost);
 
   const wavesPerSet = oceanParams.wavesPerSet ?? 6;
-  const grouping = (oceanParams.swellGrouping ?? 45) / 100;
+  const grouping = (oceanParams.swellGrouping ?? 10) / 100;
   const setPeriodSec = Math.round(wavesPerSet * T);
   const setWavesCount = Math.max(1, Math.round(wavesPerSet * (1.0 - 0.55 * grouping)));
   const lullWaitSec = Math.round((wavesPerSet - setWavesCount) * T);

@@ -4,7 +4,12 @@ import { BathymetryManager, WORLD_SIZE } from './bathymetry.js';
 import { HydroWaveSolver } from './waveSolver.js';
 import { createOceanMaterial } from './waveShader.js';
 import { evaluateSurfTelemetry } from './wavePhysics.js';
-import { SprayParticleSystem } from './spraySystem.js';
+import {
+  SprayParticleSystem,
+  PARTICLE_TYPE_BARREL,
+  PARTICLE_TYPE_WHITEWATER,
+  PARTICLE_TYPE_BOARD_SPRAY,
+} from './spraySystem.js';
 import { BeachCrowdSystem } from './crowdSystem.js';
 import { SurferPovController } from './surferPov.js';
 
@@ -12,10 +17,10 @@ import { SurferPovController } from './surferPov.js';
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b1d30);
-scene.fog = new THREE.FogExp2(0x1b3b58, 0.0014);
+scene.fog = new THREE.FogExp2(0x1b3b58, 0.00075);
 
-const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.4, 1500);
-camera.position.set(-76, 38, 104);
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.4, 2500);
+camera.position.set(-160, 95, 230);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -27,11 +32,11 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(8, 0, 8);
+controls.target.set(30, 0, -40);
 controls.minPolarAngle = 0.02;
 controls.maxPolarAngle = Math.PI * 0.96; // Allow tilting & orbiting underwater to inspect seabed structure
 controls.minDistance = 3;
-controls.maxDistance = 380;
+controls.maxDistance = 850;
 controls.screenSpacePanning = true;
 controls.panSpeed = 1.35;
 controls.mouseButtons = {
@@ -60,7 +65,7 @@ const sunLight = new THREE.DirectionalLight(0xfffbeb, 2.2);
 sunLight.position.set(80, 95, -140);
 scene.add(sunLight);
 
-const skyGeom = new THREE.SphereGeometry(680, 32, 20);
+const skyGeom = new THREE.SphereGeometry(1400, 32, 20);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide,
   depthWrite: false,
@@ -133,7 +138,7 @@ const oceanParams = {
   swellHeight: 2.2,
   swellPeriod: 14.0,
   swellDir: 0.0,
-  swellGrouping: 65.0,
+  swellGrouping: 10.0,
   wavesPerSet: 6.0,
   secEnabled: true,
   secHeight: 0.3,
@@ -147,6 +152,9 @@ const oceanParams = {
   tideLevel: 0.2,
   sunElevation: 28.0,
   timeScale: 1.0,
+  particlesBarrel: false,
+  particlesWhitewater: false,
+  particleDensity: 0.0,
 };
 
 const brushState = {
@@ -239,6 +247,7 @@ function syncUIAndTelemetry() {
   updateSetCountdownUI(t);
 
   btyManager.renderMinimap(minimapCanvas, oceanParams.tideLevel, oceanParams.swellDir);
+  updateParticlesUI();
 }
 
 let lastCountdownKey = '';
@@ -392,6 +401,114 @@ bindSlider(
   syncUIAndTelemetry
 );
 
+// --- Foam & Spray Particle Controls ---
+function updateParticlesUI() {
+  const barrelToggle = document.getElementById('particles-barrel-toggle');
+  const whitewaterToggle = document.getElementById('particles-whitewater-toggle');
+  const selectEl = document.getElementById('particles-select');
+  const badgeEl = document.getElementById('particles-badge');
+
+  if (barrelToggle && barrelToggle.checked !== !!oceanParams.particlesBarrel) {
+    barrelToggle.checked = !!oceanParams.particlesBarrel;
+  }
+  if (whitewaterToggle && whitewaterToggle.checked !== !!oceanParams.particlesWhitewater) {
+    whitewaterToggle.checked = !!oceanParams.particlesWhitewater;
+  }
+
+  if (selectEl) {
+    let targetVal = 'all';
+    if (!oceanParams.particlesBarrel && !oceanParams.particlesWhitewater) {
+      targetVal = 'none';
+    } else if (!oceanParams.particlesBarrel) {
+      targetVal = 'no_barrel';
+    } else if (!oceanParams.particlesWhitewater) {
+      targetVal = 'no_whitewater';
+    }
+    if (selectEl.value !== targetVal) selectEl.value = targetVal;
+  }
+
+  if (badgeEl) {
+    if (!oceanParams.particlesBarrel && !oceanParams.particlesWhitewater) {
+      badgeEl.textContent = 'Disabled';
+      badgeEl.className = 'badge subtle';
+    } else if (!oceanParams.particlesBarrel) {
+      badgeEl.textContent = 'Whitewater Only';
+      badgeEl.className = 'badge subtle';
+    } else if (!oceanParams.particlesWhitewater) {
+      badgeEl.textContent = 'Barrel Only';
+      badgeEl.className = 'badge subtle';
+    } else if ((oceanParams.particleDensity ?? 1.0) < 0.99) {
+      badgeEl.textContent = `${Math.round((oceanParams.particleDensity ?? 1.0) * 100)}% Density`;
+      badgeEl.className = 'badge';
+    } else {
+      badgeEl.textContent = 'All Active';
+      badgeEl.className = 'badge';
+    }
+  }
+}
+
+const particlesSelect = document.getElementById('particles-select');
+if (particlesSelect) {
+  particlesSelect.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (val === 'all') {
+      oceanParams.particlesBarrel = true;
+      oceanParams.particlesWhitewater = true;
+    } else if (val === 'no_barrel') {
+      oceanParams.particlesBarrel = false;
+      oceanParams.particlesWhitewater = true;
+      spraySystem.clearType(PARTICLE_TYPE_BARREL);
+    } else if (val === 'no_whitewater') {
+      oceanParams.particlesBarrel = true;
+      oceanParams.particlesWhitewater = false;
+      spraySystem.clearType(PARTICLE_TYPE_WHITEWATER);
+      spraySystem.clearType(PARTICLE_TYPE_BOARD_SPRAY);
+    } else if (val === 'none') {
+      oceanParams.particlesBarrel = false;
+      oceanParams.particlesWhitewater = false;
+      spraySystem.clear();
+    }
+    updateParticlesUI();
+  });
+}
+
+const particlesBarrelToggle = document.getElementById('particles-barrel-toggle');
+if (particlesBarrelToggle) {
+  particlesBarrelToggle.addEventListener('change', (e) => {
+    oceanParams.particlesBarrel = e.target.checked;
+    if (!oceanParams.particlesBarrel) {
+      spraySystem.clearType(PARTICLE_TYPE_BARREL);
+    }
+    updateParticlesUI();
+  });
+}
+
+const particlesWhitewaterToggle = document.getElementById('particles-whitewater-toggle');
+if (particlesWhitewaterToggle) {
+  particlesWhitewaterToggle.addEventListener('change', (e) => {
+    oceanParams.particlesWhitewater = e.target.checked;
+    if (!oceanParams.particlesWhitewater) {
+      spraySystem.clearType(PARTICLE_TYPE_WHITEWATER);
+      spraySystem.clearType(PARTICLE_TYPE_BOARD_SPRAY);
+    }
+    updateParticlesUI();
+  });
+}
+
+const particleDensitySlider = document.getElementById('particle-density');
+const particleDensityVal = document.getElementById('val-particle-density');
+if (particleDensitySlider) {
+  particleDensitySlider.addEventListener('input', () => {
+    const v = parseFloat(particleDensitySlider.value);
+    oceanParams.particleDensity = v / 100.0;
+    if (particleDensityVal) particleDensityVal.textContent = `${Math.round(v)}%`;
+    if (oceanParams.particleDensity <= 0.005) {
+      spraySystem.clear();
+    }
+    updateParticlesUI();
+  });
+}
+
 // Parametric Bathymetry Sliders
 bindSlider(
   'seabed-slope',
@@ -446,8 +563,12 @@ bindSlider(
 );
 
 function applyCameraPreset(cameraMode) {
+  if (cameraMode === 'surf_third') {
+    enterSurfPov('third_person');
+    return;
+  }
   if (cameraMode === 'surf_pov') {
-    enterSurfPov();
+    enterSurfPov('first_person');
     return;
   }
   if (surferPov.active) exitSurfPov(false);
@@ -457,22 +578,22 @@ function applyCameraPreset(cameraMode) {
   const sideSign = preset === 'left_point' || preset === 'jetty_wedge' || preset === 'rivermouth' ? 1 : -1;
 
   if (cameraMode === 'overview') {
-    camera.position.set(76 * sideSign, 38, 104);
-    controls.target.set(-8 * sideSign, 0, 8);
+    camera.position.set(160 * sideSign, 95, 230);
+    controls.target.set(-30 * sideSign, 0, -40);
   } else if (cameraMode === 'underwater') {
-    camera.position.set(54 * sideSign, -4.2, 46);
-    controls.target.set(-8 * sideSign, -2.2, -5);
+    camera.position.set(110 * -sideSign, -8, -120);
+    controls.target.set(30 * -sideSign, -3, -60);
   } else if (cameraMode === 'lineup') {
-    camera.position.set(38 * sideSign, 6.2, 18);
-    controls.target.set(-18 * sideSign, 1.2, -32);
+    camera.position.set(175 * -sideSign, 12, -145);
+    controls.target.set(155 * -sideSign, 2, -220);
   } else if (cameraMode === 'barrel') {
-    camera.position.set(12 * sideSign, 2.3, -4);
-    controls.target.set(-22 * sideSign, 1.3, -32);
+    camera.position.set(120 * -sideSign, 5, -110);
+    controls.target.set(40 * -sideSign, 2, -70);
   } else if (cameraMode === 'cliff') {
-    camera.position.set(-95 * sideSign, 26, 45);
-    controls.target.set(5 * sideSign, 0, -5);
+    camera.position.set(195 * -sideSign, 42, -50);
+    controls.target.set(60 * -sideSign, 2, -120);
   } else if (cameraMode === 'topdown') {
-    camera.position.set(0, 215, 18);
+    camera.position.set(0, 480, 20);
     controls.target.set(0, 0, 0);
   }
 }
@@ -706,6 +827,12 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
       surferPov.takeOff(oceanParams);
+    } else if (e.code === 'KeyC' || e.code === 'KeyV') {
+      e.preventDefault();
+      toggleSurfView();
+    } else if (e.code === 'KeyM') {
+      e.preventDefault();
+      document.getElementById('surf-hud-map-card')?.classList.toggle('hidden');
     } else if (e.code === 'Escape') {
       exitSurfPov(true);
     }
@@ -774,20 +901,47 @@ function updateWASDCamera(dt) {
   }
 }
 
-// --- First-Person POV Surfing Mode (WASD) ---
+// --- Surfing Mode (1st-Person POV & 3rd-Person Low Bird-View) ---
 const surferPov = new SurferPovController(scene, camera, controls, waveSolver, btyManager, spraySystem);
 const surfHud = document.getElementById('surf-hud');
 const surfHudSpeed = document.getElementById('surf-hud-speed');
 const surfHudStatus = document.getElementById('surf-hud-status');
+const surfViewToggleBtn = document.getElementById('surf-view-toggle-btn');
 const cameraSelectEl = document.getElementById('camera-select');
 
-function enterSurfPov() {
-  if (surferPov.active) return;
+function updateSurfViewButton() {
+  if (!surfViewToggleBtn) return;
+  const is3rd = surferPov.viewMode === 'third_person';
+  surfViewToggleBtn.innerHTML = is3rd
+    ? '📷 Switch to 1st Person <kbd style="font-size:10px;margin-left:4px">C</kbd>'
+    : '🦅 Switch to Bird-View <kbd style="font-size:10px;margin-left:4px">C</kbd>';
+  surfViewToggleBtn.title = is3rd
+    ? 'Switch to First-Person Surf POV (Key: C or V)'
+    : 'Switch to Third-Person Low Bird-View (Key: C or V)';
+}
+
+function enterSurfPov(viewMode = 'third_person') {
+  if (surferPov.active) {
+    if (viewMode && surferPov.viewMode !== viewMode) {
+      surferPov.setViewMode(viewMode);
+      cameraSelectEl.value = viewMode === 'third_person' ? 'surf_third' : 'surf_pov';
+      updateSurfViewButton();
+    }
+    return;
+  }
   surfHud.classList.remove('hidden');
   document.activeElement?.blur?.();
-  surferPov.enable(oceanParams);
-  cameraSelectEl.value = 'surf_pov';
+  surferPov.enable(oceanParams, viewMode);
+  cameraSelectEl.value = viewMode === 'third_person' ? 'surf_third' : 'surf_pov';
   crowdSystem.setVisible?.(true);
+  updateSurfViewButton();
+}
+
+function toggleSurfView() {
+  if (!surferPov.active) return;
+  const nextMode = surferPov.toggleViewMode();
+  cameraSelectEl.value = nextMode === 'third_person' ? 'surf_third' : 'surf_pov';
+  updateSurfViewButton();
 }
 
 function exitSurfPov(returnToOrbit) {
@@ -799,15 +953,32 @@ function exitSurfPov(returnToOrbit) {
   }
 }
 
+const hudMinimapCanvas = document.getElementById('surf-hud-minimap');
+const surfHudMapCard = document.getElementById('surf-hud-map-card');
+const surfHudDepthTag = document.getElementById('surf-hud-depth-tag');
+const playerTrail = [];
+let lastTrailTime = 0;
+
 function updateSurfHud() {
   surfHudSpeed.textContent = `${surferPov.speed.toFixed(1)} m/s (${(surferPov.speed * 1.94384).toFixed(1)} kts)`;
   if (surfHudStatus.textContent !== surferPov.statusLabel) surfHudStatus.textContent = surferPov.statusLabel;
   surfHudStatus.classList.toggle('in-barrel', surferPov.isInBarrel);
+
+  if (surfHudDepthTag) {
+    const samp = btyManager.sampleAt(surferPov.pos.x, surferPov.pos.z);
+    const d = Math.max(0, (oceanParams.tideLevel ?? 0.2) - samp.elevation);
+    surfHudDepthTag.textContent = d > 0.05 ? `Depth: ${d.toFixed(1)}m` : 'On Shore';
+  }
 }
 
-document.getElementById('surf-pov-btn').addEventListener('click', enterSurfPov);
+document.getElementById('surf-third-btn')?.addEventListener('click', () => enterSurfPov('third_person'));
+document.getElementById('surf-pov-btn').addEventListener('click', () => enterSurfPov('first_person'));
+document.getElementById('surf-view-toggle-btn')?.addEventListener('click', toggleSurfView);
 document.getElementById('surf-exit-btn').addEventListener('click', () => exitSurfPov(true));
-document.getElementById('surf-dropin-btn').addEventListener('click', () => surferPov.resetToLineup(oceanParams, true));
+document.getElementById('surf-dropin-btn').addEventListener('click', () => {
+  playerTrail.length = 0;
+  surferPov.resetToLineup(oceanParams, true);
+});
 renderer.domElement.addEventListener('pointerdown', (e) => surferPov.onPointerDown(e));
 window.addEventListener('pointermove', (e) => surferPov.onPointerMove(e));
 window.addEventListener('pointerup', () => surferPov.onPointerUp());
@@ -824,11 +995,36 @@ spraySystem.warmup(oceanParams, waveSolver, 45);
 crowdSystem.populate(btyManager, oceanParams.tideLevel);
 syncUIAndTelemetry();
 
+// --- Performance FPS Counter ---
+let fpsFrameCount = 0;
+let fpsLastTime = performance.now();
+const fpsValEl = document.getElementById('fps-val');
+const fpsMsEl = document.getElementById('fps-ms');
+const fpsDotEl = document.querySelector('.fps-dot');
+
+function updateFPS() {
+  fpsFrameCount++;
+  const now = performance.now();
+  const elapsed = now - fpsLastTime;
+  if (elapsed >= 450) {
+    const fps = Math.round((fpsFrameCount * 1000) / elapsed);
+    const ms = (elapsed / fpsFrameCount).toFixed(1);
+    fpsFrameCount = 0;
+    fpsLastTime = now;
+    if (fpsValEl) fpsValEl.textContent = fps;
+    if (fpsMsEl) fpsMsEl.textContent = `${ms}ms`;
+    if (fpsDotEl) {
+      fpsDotEl.className = 'fps-dot' + (fps >= 48 ? '' : fps >= 28 ? ' warn' : ' bad');
+    }
+  }
+}
+
 // --- Main Animation Loop ---
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
+  updateFPS();
 
   const dt = Math.min(0.05, clock.getDelta());
 
@@ -864,6 +1060,43 @@ function animate() {
     updateSurfHud();
   } else {
     updateWASDCamera(dt);
+  }
+
+  // Track player position trail for minimap
+  const now = clock.getElapsedTime();
+  if (surferPov.active) {
+    if (now - lastTrailTime > 0.06) {
+      lastTrailTime = now;
+      playerTrail.push({ x: surferPov.pos.x, z: surferPov.pos.z });
+      if (playerTrail.length > 32) playerTrail.shift();
+    }
+  } else if (playerTrail.length > 0) {
+    playerTrail.length = 0;
+  }
+
+  // Real-time Bathymetry Depth Map with player location
+  const playerMinimapData = {
+    x: surferPov.pos.x,
+    z: surferPov.pos.z,
+    yaw: surferPov.yaw,
+    active: surferPov.active,
+    trail: playerTrail,
+  };
+
+  btyManager.renderMinimap(
+    minimapCanvas,
+    oceanParams.tideLevel,
+    oceanParams.swellDir,
+    playerMinimapData
+  );
+
+  if (surferPov.active && hudMinimapCanvas && !surfHudMapCard?.classList.contains('hidden')) {
+    btyManager.renderMinimap(
+      hudMinimapCanvas,
+      oceanParams.tideLevel,
+      oceanParams.swellDir,
+      playerMinimapData
+    );
   }
 
   if (controls.enabled) {
