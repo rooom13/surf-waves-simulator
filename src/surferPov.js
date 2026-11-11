@@ -7,6 +7,15 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
+// Riding dynamics constants
+const GRAVITY = 9.81;
+// The PDE grid is smoothed (~3.3m cells), so sampled face slopes understate the real face.
+const FACE_GRAVITY_GAIN = 1.9;
+// Tightest carve radius (m) a shortboard can hold on rail at speed.
+const CARVE_MIN_RADIUS = 4.2;
+// Fraction of speed scrubbed per unit slip when the fins redirect sideways momentum.
+const CARVE_SLIP_LOSS = 0.35;
+
 /**
  * First-Person POV Surfing Controller (WASD + Space Take-Off + Mouse Look)
  * Rides the actual 3D displaced ocean surface with wave-slope gravity propulsion,
@@ -55,14 +64,21 @@ export class SurferPovController {
     this.prevWDown = false;
     this.isSprinting = false;
 
+    // Progressive rail engagement (smoothed A/D input; sign follows turnInput)
+    this.carveInput = 0.0;
+    this.turnRate = 0.0;
+
     // Duck dive state (submerging under oncoming wave crest/whitewater)
     this.duckDivePhase = 0.0; // 0 = surface, >0 = diving underwater (duration ~1.5s)
     this.duckDiveDepth = 0.0; // vertical offset in meters (negative underwater)
 
-    // Camera view mode: 'third_person' (low bird-view drone chase) or 'first_person' (surfer POV)
+    // Camera view mode: 'third_person' (user-placed orbit view) or 'first_person' (surfer POV)
     this.viewMode = 'third_person';
     this.camPosSmoothed = null;
     this.camLookSmoothed = null;
+    this.thirdPersonYaw = null;
+    this.thirdPersonPitch = 0.38;
+    this.thirdPersonDist = 6.2;
 
     // Build 1:1 metric 3D surfboard mesh (2.05m x 0.52m shortboard)
     this.boardGroup = this.createSurfboardMesh();
@@ -350,6 +366,9 @@ export class SurferPovController {
     this.setViewMode(viewMode);
     this.camera.near = 0.15;
     this.resetToLineup(oceanParams, true);
+    if (this.thirdPersonYaw === null || this.thirdPersonYaw === undefined) {
+      this.thirdPersonYaw = this.yaw;
+    }
   }
 
   setViewMode(viewMode) {
@@ -357,6 +376,9 @@ export class SurferPovController {
     if (this.viewMode === 'third_person') {
       this.camera.fov = 62;
       this.surferFigureGroup.visible = true;
+      if (this.thirdPersonYaw === null || this.thirdPersonYaw === undefined) {
+        this.thirdPersonYaw = this.yaw;
+      }
     } else {
       this.camera.fov = 68;
       this.surferFigureGroup.visible = false;
@@ -380,13 +402,15 @@ export class SurferPovController {
     this.camera.near = 0.5;
     this.camera.updateProjectionMatrix();
     this.camera.up.set(0, 1, 0);
+    document.body.style.cursor = '';
   }
 
   onPointerDown(e) {
-    if (!this.active || e.button !== 0) return;
+    if (!this.active || (e.button !== 0 && e.button !== 2)) return;
     this.isPointerLooking = true;
     this.lastPointerX = e.clientX;
     this.lastPointerY = e.clientY;
+    document.body.style.cursor = 'grabbing';
   }
 
   onPointerMove(e) {
@@ -396,12 +420,28 @@ export class SurferPovController {
     this.lastPointerX = e.clientX;
     this.lastPointerY = e.clientY;
 
-    this.lookYawOffset -= dx * 0.0045;
-    this.lookPitchOffset = Math.max(-0.55, Math.min(0.45, this.lookPitchOffset - dy * 0.0038));
+    if (this.viewMode === 'third_person') {
+      if (this.thirdPersonYaw === null || this.thirdPersonYaw === undefined) {
+        this.thirdPersonYaw = this.yaw;
+      }
+      this.thirdPersonYaw -= dx * 0.005;
+      this.thirdPersonPitch = Math.max(-0.15, Math.min(1.35, (this.thirdPersonPitch ?? 0.38) - dy * 0.004));
+    } else {
+      this.lookYawOffset -= dx * 0.0045;
+      this.lookPitchOffset = Math.max(-0.55, Math.min(0.45, this.lookPitchOffset - dy * 0.0038));
+    }
   }
 
   onPointerUp() {
     this.isPointerLooking = false;
+    if (this.active) {
+      document.body.style.cursor = '';
+    }
+  }
+
+  onWheel(e) {
+    if (!this.active || this.viewMode !== 'third_person') return;
+    this.thirdPersonDist = Math.max(3.0, Math.min(22.0, (this.thirdPersonDist ?? 6.2) + e.deltaY * 0.006));
   }
 
   /**
@@ -600,6 +640,8 @@ export class SurferPovController {
     this.vel.set(0, 0, 0);
     this.mode = 'paddle';
     this.isSprinting = false;
+    this.carveInput = 0.0;
+    this.turnRate = 0.0;
     this.prevWDown = false;
     this.duckDivePhase = 0.0;
     this.duckDiveDepth = 0.0;
@@ -635,8 +677,11 @@ export class SurferPovController {
     this.yaw = Math.atan2(dirX / n, dirZ / n);
     this.vel.set((dirX / n) * 6.2, 0, (dirZ / n) * 6.2);
     this.mode = 'ride';
+    this.carveInput = 0.0;
     this.slowTime = 0;
-    this.lookYawOffset = -peelSign * 0.2;
+    if (this.viewMode === 'first_person') {
+      this.lookYawOffset = -peelSign * 0.2;
+    }
     this.showToast('Take-off! Carve with A / D');
   }
 
@@ -699,61 +744,70 @@ export class SurferPovController {
 
     const curSpeed = Math.hypot(this.vel.x, this.vel.z);
 
-    // 3. Steering / Rail Carving (responsive at both paddling and planing speeds)
-    const turnRate = (isDuckDiving ? 0.35 : this.mode === 'paddle' ? 0.9 : 1.65 + Math.min(1.1, curSpeed * 0.12)) * turnInput;
-    this.yaw += turnRate * dt;
+    // 3. Rail engagement & steering
+    // The rail engages progressively (≈0.2s) instead of snapping, and releases a bit faster.
+    const prevCarve = this.carveInput;
+    const engageRate = Math.abs(turnInput) > Math.abs(this.carveInput) ? 5.5 : 8.0;
+    this.carveInput += (turnInput - this.carveInput) * Math.min(1.0, dt * engageRate);
+    const carve = this.carveInput;
+    const carveRate = (carve - prevCarve) / dt;
 
-    // Gently recenter head-look yaw when carving unless actively dragging mouse
-    if (!this.isPointerLooking && Math.abs(turnInput) > 0.1) {
+    let turnRate;
+    if (isDuckDiving) {
+      turnRate = 0.35 * turnInput;
+    } else if (paddling) {
+      turnRate = 0.9 * turnInput;
+    } else {
+      // A planing board turns on its rail with a minimum radius R, so yaw rate = v / R.
+      // Fast surfers carve tight arcs; a bogged-down board can only pivot slowly.
+      const yawRateMax = Math.min(2.9, Math.max(1.0, curSpeed / CARVE_MIN_RADIUS));
+      turnRate = yawRateMax * carve;
+    }
+    this.yaw += turnRate * dt;
+    this.turnRate = turnRate;
+
+    // Gently recenter head-look yaw when carving in 1st person unless actively dragging mouse
+    if (this.viewMode === 'first_person' && !this.isPointerLooking && Math.abs(turnInput) > 0.1) {
       this.lookYawOffset *= Math.exp(-dt * 2.2);
     }
 
     const dirX = Math.sin(this.yaw);
     const dirZ = Math.cos(this.yaw);
 
-    // 4. Hydrodynamic Wave-Face Gravity + Downhill Drop Plunge + Pocket Trim + Rail Carving
-    // Down-slope vector points in -gradEta (down the front of the wave)
+    // 4. Forces: gravity on the moving wave surface + wave/curl push + pumping + drag.
+    // Speed is EARNED by converting height into velocity (dropping down the face) and lost
+    // when climbing back up. Carving does not create speed by itself - it redirects momentum.
     const slopeMag = Math.hypot(s.gradX, s.gradZ);
     const downSlopeX = slopeMag > 0.001 ? -s.gradX / slopeMag : 0.0;
     const downSlopeZ = slopeMag > 0.001 ? -s.gradZ / slopeMag : 1.0;
-
     const onFrontFace = !paddling && s.frontSlope > 0.012 && s.eta > 0.18;
+    const faceMask = smoothstep(0.02, 0.18, s.frontSlope);
 
-    // 1) Wave gravity acceleration down the face:
-    // Strongly boosted so dropping down the face feels thrilling, punchy, and fast!
-    const waveGravScale = paddling ? 4.5 : onFrontFace ? 34.0 : 12.0;
-    let ax = -s.gradX * waveGravScale;
-    let az = -s.gradZ * waveGravScale;
+    // Tangential component of gravity along the height field (same law uphill and downhill,
+    // so climbing to the lip costs exactly the speed a drop gives back).
+    const gravScale = paddling ? 4.5 : (GRAVITY * FACE_GRAVITY_GAIN) / Math.sqrt(1.0 + slopeMag * slopeMag);
+    let ax = -s.gradX * gravScale;
+    let az = -s.gradZ * gravScale;
 
-    // 2) Downhill drop plunge acceleration:
-    // When aiming down the face of the wave, gravitational potential energy rapidly converts to speed!
     const downhillAlignment = Math.max(0.0, dirX * downSlopeX + dirZ * downSlopeZ);
-    if (onFrontFace && downhillAlignment > 0.05) {
-      const dropBoost = downhillAlignment * (6.5 + s.frontSlope * 24.0);
-      ax += dirX * dropBoost;
-      az += dirZ * dropBoost;
-    }
 
-    // 3) Pocket trim propulsion down the line
     if (onFrontFace) {
-      const pocketDrive = (3.4 + s.bTube * 5.4 + Math.min(1.8, s.eta) * 2.6) * smoothstep(0.02, 0.18, s.frontSlope);
-      ax += (dirX * 0.74 + s.kHatX * 0.26) * pocketDrive;
-      az += (dirZ * 0.74 + s.kHatZ * 0.26) * pocketDrive;
-    }
+      // The advancing wave and its curl shove the board shoreward (along the wave direction).
+      // The fins turn that shove into down-the-line speed when the board is angled across the face.
+      const curlPush = (1.1 + s.bTube * 2.6) * faceMask;
+      ax += s.kHatX * curlPush;
+      az += s.kHatZ * curlPush;
 
-    // 4) Rail Carving / Pumping Drive:
-    // In real surfing, rail carving transfers centripetal water force into forward projection ("pumping for speed").
-    // Carving S-turns or bottom turns with A / D generates positive forward thrust!
-    const isCarving = onFrontFace && Math.abs(turnInput) > 0.12;
-    if (isCarving) {
-      const railDrive = Math.abs(turnInput) * (3.8 + Math.min(4.8, curSpeed * 0.45)) * smoothstep(0.02, 0.18, s.frontSlope);
-      ax += dirX * railDrive;
-      az += dirZ * railDrive;
+      // Rail-to-rail pumping: weighting/unweighting when switching rails adds a little energy.
+      // Rewards rhythmic S-turns on the face (not just holding a key).
+      const railPump = Math.min(2.8, Math.abs(carveRate) * 0.55) * faceMask;
+      ax += dirX * railPump;
+      az += dirZ * railPump;
     }
 
     // Surfer W/S input:
     // Paddling: W = paddle forward, S = duck dive under waves.
-    // Riding: W = pump/drive forward down the line, S = stall into the barrel
+    // Riding: W = pump (modest leg drive), S = stall into the barrel
     if (paddling) {
       if (isDuckDiving) {
         // Momentum pushes forward underwater through the wave
@@ -768,15 +822,14 @@ export class SurferPovController {
         this.paddlePhase += dt * 1.2;
       }
     } else if (throttle > 0) {
-      // W pump while riding adds extra leg compression drive down the line
-      const boost = onFrontFace ? 7.8 : 5.0;
+      const boost = onFrontFace ? 2.4 : 1.0;
       ax += dirX * boost;
       az += dirZ * boost;
       this.paddlePhase += dt * (onFrontFace ? 3.0 : 7.5);
     } else if (throttle < 0) {
       // Stalling tail brake lets the tube catch up to you!
-      ax -= this.vel.x * 2.8 - dirX * 1.5;
-      az -= this.vel.z * 2.8 - dirZ * 1.5;
+      ax -= this.vel.x * 2.2;
+      az -= this.vel.z * 2.2;
     } else {
       this.paddlePhase += dt * 1.8;
     }
@@ -785,30 +838,42 @@ export class SurferPovController {
     this.vel.x += ax * dt;
     this.vel.z += az * dt;
 
-    // Rail fin grip: project velocity onto surfboard heading so carving A/D genuinely redirects momentum!
-    const forwardSpeed = this.vel.x * dirX + this.vel.z * dirZ;
-    const lateralX = this.vel.x - dirX * forwardSpeed;
-    const lateralZ = this.vel.z - dirZ * forwardSpeed;
-    const lateralMag = Math.hypot(lateralX, lateralZ);
+    // Fins & rails: lateral (sideways) velocity is redirected into the board's heading rather
+    // than thrown away. Speed magnitude is preserved minus a slip loss proportional to the
+    // slip angle - hard, skidding turns scrub speed; clean carves keep it.
+    {
+      const forwardSpeed = this.vel.x * dirX + this.vel.z * dirZ;
+      const lateralX = this.vel.x - dirX * forwardSpeed;
+      const lateralZ = this.vel.z - dirZ * forwardSpeed;
+      const lateralMag = Math.hypot(lateralX, lateralZ);
+      const speedNow = Math.hypot(this.vel.x, this.vel.z);
+      const grip = 1.0 - Math.exp(-dt * (speedNow > 2.5 ? 10.0 : 5.0));
+      const keepLat = 1.0 - grip;
 
-    // Dynamic rail bite: convert a portion of lateral slide momentum into forward speed during hard carves!
-    const railConvert = onFrontFace && Math.abs(turnInput) > 0.1 ? Math.min(2.8, lateralMag * 0.42) : 0.0;
-    const alignedSpeed = Math.max(-1.8, forwardSpeed + railConvert);
-    const finGrip = Math.exp(-dt * (curSpeed > 2.5 ? 9.5 : 5.0));
+      if (!paddling && forwardSpeed > 0.5) {
+        const slip = lateralMag / Math.max(0.001, speedNow); // sin(slip angle)
+        const slipLoss = 1.0 - Math.min(0.5, CARVE_SLIP_LOSS * slip * grip);
+        const newLat = lateralMag * keepLat;
+        const newFwd = Math.sqrt(Math.max(0, forwardSpeed * forwardSpeed + lateralMag * lateralMag - newLat * newLat)) * slipLoss;
+        this.vel.x = dirX * newFwd + lateralX * keepLat;
+        this.vel.z = dirZ * newFwd + lateralZ * keepLat;
+      } else {
+        const alignedSpeed = Math.max(-1.8, forwardSpeed);
+        this.vel.x = dirX * alignedSpeed + lateralX * keepLat;
+        this.vel.z = dirZ * alignedSpeed + lateralZ * keepLat;
+      }
+    }
 
-    this.vel.x = dirX * alignedSpeed + lateralX * finGrip;
-    this.vel.z = dirZ * alignedSpeed + lateralZ * finGrip;
+    // Hydrodynamic drag: linear skin friction + quadratic form drag (planing board).
+    const isCarving = onFrontFace && Math.abs(carve) > 0.35;
+    const linDrag = paddling ? 1.5 : onFrontFace ? 0.17 : 0.5;
+    const quadDrag = paddling ? 0.0 : 0.006;
+    const sp = Math.hypot(this.vel.x, this.vel.z);
+    const dragFactor = Math.exp(-dt * (linDrag + quadDrag * sp));
+    this.vel.x *= dragFactor;
+    this.vel.z *= dragFactor;
 
-    // Water drag & speed cap:
-    // On the face, drag is gentle (0.26) so carving and bottom turns retain speed.
-    // Max riding speed scales up to 15.5 m/s (~56 km/h) when carving and dropping!
-    const dragRate = paddling ? 1.5 : onFrontFace ? (isCarving ? 0.20 : 0.26) : 0.65;
-    this.vel.x *= Math.exp(-dt * dragRate);
-    this.vel.z *= Math.exp(-dt * dragRate);
-
-    const maxSpeed = paddling
-      ? (this.isSprinting ? 3.85 : 2.3)
-      : (isCarving || downhillAlignment > 0.25 ? 15.5 : 13.5);
+    const maxSpeed = paddling ? (this.isSprinting ? 3.85 : 2.3) : 15.5;
     const newSpeed = Math.hypot(this.vel.x, this.vel.z);
     if (newSpeed > maxSpeed) {
       this.vel.x = (this.vel.x / newSpeed) * maxSpeed;
@@ -920,7 +985,13 @@ export class SurferPovController {
       const divePitch = -0.65 * (1.0 - diveT * 1.6);
       wavePitch = THREE.MathUtils.lerp(wavePitch, divePitch, 0.85);
     }
-    const targetRoll = -turnInput * 0.44 * Math.min(1.0, this.speed / 4.0);
+    // Bank angle balances the centripetal load of the carve: tan(phi) = v * omega / g.
+    // (Positive turnRate = left turn -> negative roll, matching the screen-space convention.)
+    const lateralG = paddling ? 0.0 : (this.speed * this.turnRate) / GRAVITY;
+    const targetRoll = paddling
+      ? -turnInput * 0.12
+      : -Math.max(-0.85, Math.min(0.85, Math.atan(lateralG) * 0.8));
+    this.lateralG = lateralG;
     this.pitch += (wavePitch - this.pitch) * Math.min(1.0, dt * 10.0);
     this.roll += (targetRoll - this.roll) * Math.min(1.0, dt * 10.0);
 
@@ -955,13 +1026,14 @@ export class SurferPovController {
       this.surferProneGroup.visible = false;
       this.surferStandingGroup.visible = true;
 
-      // Dynamic athletic crouch for speed and deep barrel tuck
+      // Dynamic athletic crouch: speed tuck, barrel tuck, and knee compression under carve g-load
       const barrelCrouch = this.isInBarrel ? 0.25 : 0.0;
       const speedCrouch = Math.min(0.12, (this.speed / 10) * 0.12);
-      this.surferStandingGroup.position.y = -(barrelCrouch + speedCrouch);
+      const gLoadCrouch = Math.min(0.2, Math.abs(this.lateralG ?? 0) * 0.09);
+      this.surferStandingGroup.position.y = -(barrelCrouch + speedCrouch + gLoadCrouch);
 
-      // Body lean into carve turns (weight shift)
-      this.surferStandingGroup.rotation.z = -turnInput * 0.35;
+      // Body leans with the board's bank (slightly less, upper body stays over the rail)
+      this.surferStandingGroup.rotation.z = this.roll * 0.8;
       this.surferStandingGroup.rotation.x = this.speed > 5.5 ? 0.06 : 0.0;
 
       if (this.isInBarrel) {
@@ -970,8 +1042,9 @@ export class SurferPovController {
         this.standArmR.rotation.set(0.38, -0.32, 0.65);
       } else {
         // Athletic style: lead arm trims forward, trailing arm balances carves
-        this.standArmL.rotation.set(-0.52 - turnInput * 0.32, 0.20, -0.38);
-        this.standArmR.rotation.set(0.48 + turnInput * 0.32, -0.20, 0.42);
+        const c = this.carveInput ?? 0;
+        this.standArmL.rotation.set(-0.52 - c * 0.32, 0.20, -0.38);
+        this.standArmR.rotation.set(0.48 + c * 0.32, -0.20, 0.42);
       }
     }
 
@@ -990,8 +1063,8 @@ export class SurferPovController {
       const camZ = this.pos.z - dirZ * 0.18;
       this.camera.position.set(camX, camY, camZ);
 
-      // Subtle camera roll banking when carving hard turns
-      this.camera.up.set(Math.sin(this.roll * 0.35), Math.cos(this.roll * 0.35), 0).normalize();
+      // Keep camera upright in first-person POV (no roll/bank inclination when turning)
+      this.camera.up.set(0, 1, 0);
 
       const totalYaw = this.yaw + this.lookYawOffset;
       const totalPitch = this.pitch * 0.45 + this.lookPitchOffset;
@@ -1003,16 +1076,17 @@ export class SurferPovController {
       this.camera.lookAt(lookX, lookY, lookZ);
       this.controls.target.set(lookX, lookY, lookZ);
     } else {
-      // --- THIRD-PERSON LOW BIRD-VIEW (Drone chase perspective) ---
+      // --- THIRD-PERSON VIEW (Camera stays where the user places it, does not turn with the surfer) ---
       this.surferFigureGroup.visible = true;
 
-      const camDistBack = paddling ? 5.2 : 5.8;
-      const camHeightAbove = paddling ? 2.8 : 3.4;
+      const camDist = this.thirdPersonDist ?? (paddling ? 5.2 : 5.8);
+      const pitch = this.thirdPersonPitch ?? 0.38;
+      const yaw = this.thirdPersonYaw ?? this.yaw;
 
-      const effectiveYaw = this.yaw + this.lookYawOffset;
-      const camTargetX = this.pos.x - Math.sin(effectiveYaw) * camDistBack;
-      let camTargetY = this.pos.y + camHeightAbove - Math.sin(this.lookPitchOffset) * 2.6;
-      const camTargetZ = this.pos.z - Math.cos(effectiveYaw) * camDistBack;
+      const camDistHoriz = camDist * Math.cos(pitch);
+      const camTargetX = this.pos.x - Math.sin(yaw) * camDistHoriz;
+      let camTargetY = this.pos.y + 0.9 + camDist * Math.sin(pitch);
+      const camTargetZ = this.pos.z - Math.cos(yaw) * camDistHoriz;
 
       // Prevent camera from clipping under the displaced ocean surface
       const camWaterSample = this.sampleSurface(camTargetX, camTargetZ, oceanParams);
@@ -1021,24 +1095,23 @@ export class SurferPovController {
         camTargetY = minCamY;
       }
 
-      // Smooth camera trailing with lerp for action-drone feel
+      // Smooth camera trailing with lerp
       if (!this.camPosSmoothed) {
         this.camPosSmoothed = new THREE.Vector3(camTargetX, camTargetY, camTargetZ);
-        this.camLookSmoothed = new THREE.Vector3(this.pos.x, this.pos.y + 0.8, this.pos.z);
+        this.camLookSmoothed = new THREE.Vector3(this.pos.x, this.pos.y + 0.85, this.pos.z);
       }
-      this.camPosSmoothed.lerp(new THREE.Vector3(camTargetX, camTargetY, camTargetZ), Math.min(1.0, dt * 9.0));
+      this.camPosSmoothed.lerp(new THREE.Vector3(camTargetX, camTargetY, camTargetZ), Math.min(1.0, dt * 14.0));
       this.camera.position.copy(this.camPosSmoothed);
 
-      // Camera roll: banking smoothly with board carve roll
-      this.camera.up.set(Math.sin(-this.roll * 0.22), Math.cos(this.roll * 0.22), 0).normalize();
+      // Camera stays upright (level horizon)
+      this.camera.up.set(0, 1, 0);
 
-      // Look target: points down the line ahead of the surfer
-      const leadDist = paddling ? 3.0 : 4.5;
-      const targetLookX = this.pos.x + Math.sin(effectiveYaw) * leadDist;
-      const targetLookY = this.pos.y + 0.8 + Math.sin(this.lookPitchOffset) * 2.2;
-      const targetLookZ = this.pos.z + Math.cos(effectiveYaw) * leadDist;
+      // Look target: always tracks the surfer
+      const targetLookX = this.pos.x;
+      const targetLookY = this.pos.y + 0.85;
+      const targetLookZ = this.pos.z;
 
-      this.camLookSmoothed.lerp(new THREE.Vector3(targetLookX, targetLookY, targetLookZ), Math.min(1.0, dt * 11.0));
+      this.camLookSmoothed.lerp(new THREE.Vector3(targetLookX, targetLookY, targetLookZ), Math.min(1.0, dt * 16.0));
       this.camera.lookAt(this.camLookSmoothed);
       this.controls.target.copy(this.camLookSmoothed);
     }

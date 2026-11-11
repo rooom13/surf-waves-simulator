@@ -121,6 +121,7 @@ export class BathymetryManager {
     // Minimap offscreen cache for smooth real-time player tracking
     this.minimapOffscreen = null;
     this.minimapDirty = true;
+    this.minimapVersion = 1;
     this.lastTideLevel = null;
     this.lastSwellDir = null;
 
@@ -459,6 +460,7 @@ export class BathymetryManager {
 
   recomputeDerivedFields() {
     this.minimapDirty = true;
+    this.minimapVersion = 1;
     const cellStep = WORLD_SIZE / (BTY_RES - 1);
 
     // 1. Combine base elevation + sculpt offset
@@ -673,21 +675,22 @@ export class BathymetryManager {
     const w = canvas.width;
     const h = canvas.height;
 
-    // Check if background depth map needs to be recomputed
+    const btyVersion = this.minimapVersion || 0;
+    // Check if background depth map needs to be recomputed for this canvas
     if (
-      this.minimapDirty ||
-      !this.minimapOffscreen ||
-      this.minimapOffscreen.width !== w ||
-      this.minimapOffscreen.height !== h ||
-      this.lastTideLevel !== tideLevel ||
-      this.lastSwellDir !== swellDirDeg
+      !canvas._minimapOffscreen ||
+      canvas._minimapOffscreen.width !== w ||
+      canvas._minimapOffscreen.height !== h ||
+      canvas._lastBtyVersion !== btyVersion ||
+      canvas._lastTideLevel !== tideLevel ||
+      canvas._lastSwellDir !== swellDirDeg
     ) {
-      if (!this.minimapOffscreen) {
-        this.minimapOffscreen = document.createElement('canvas');
+      if (!canvas._minimapOffscreen) {
+        canvas._minimapOffscreen = document.createElement('canvas');
       }
-      this.minimapOffscreen.width = w;
-      this.minimapOffscreen.height = h;
-      const offCtx = this.minimapOffscreen.getContext('2d');
+      canvas._minimapOffscreen.width = w;
+      canvas._minimapOffscreen.height = h;
+      const offCtx = canvas._minimapOffscreen.getContext('2d');
       const imgData = offCtx.createImageData(w, h);
       const data = imgData.data;
 
@@ -787,13 +790,13 @@ export class BathymetryManager {
       offCtx.arc(cx + dx * 0.5, cy + dy * 0.5, 3.5, 0, Math.PI * 2);
       offCtx.fill();
 
-      this.minimapDirty = false;
-      this.lastTideLevel = tideLevel;
-      this.lastSwellDir = swellDirDeg;
+      canvas._lastBtyVersion = btyVersion;
+      canvas._lastTideLevel = tideLevel;
+      canvas._lastSwellDir = swellDirDeg;
     }
 
     // Draw cached bathymetry background
-    ctx.drawImage(this.minimapOffscreen, 0, 0);
+    ctx.drawImage(canvas._minimapOffscreen, 0, 0);
 
     // Render real-time Player Location (Tiny at-scale white surfboard)
     if (playerInfo) {

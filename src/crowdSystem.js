@@ -34,6 +34,14 @@ export class BeachCrowdSystem {
     this.group.name = 'BeachCrowdReference';
     this.scene.add(this.group);
 
+    this.crowdGroup = new THREE.Group();
+    this.crowdGroup.name = 'BeachCrowdPeople';
+    this.group.add(this.crowdGroup);
+
+    this.propsGroup = new THREE.Group();
+    this.propsGroup.name = 'BeachCrowdProps';
+    this.group.add(this.propsGroup);
+
     this.actors = [];
     this.sharedGeometries = this.createSharedGeometries();
     this.sharedMaterials = this.createSharedMaterials();
@@ -127,11 +135,27 @@ export class BeachCrowdSystem {
   }
 
   clear() {
-    while (this.group.children.length > 0) {
-      const child = this.group.children.pop();
-      this.group.remove(child);
+    while (this.crowdGroup.children.length > 0) {
+      const child = this.crowdGroup.children.pop();
+      this.crowdGroup.remove(child);
+    }
+    while (this.propsGroup.children.length > 0) {
+      const child = this.propsGroup.children.pop();
+      this.propsGroup.remove(child);
     }
     this.actors = [];
+  }
+
+  setCrowdVisible(visible) {
+    this.crowdGroup.visible = !!visible;
+  }
+
+  setPropsVisible(visible) {
+    this.propsGroup.visible = !!visible;
+  }
+
+  setVisible(visible) {
+    this.group.visible = !!visible;
   }
 
   createHumanMesh(rng, role = 'spectator') {
@@ -341,13 +365,17 @@ export class BeachCrowdSystem {
           tower.position.set(candidate.x, exactH, candidate.z);
           // Face toward the ocean (-Z)
           tower.rotation.y = Math.PI + (rng() - 0.5) * 0.35;
-          this.group.add(tower);
+          this.propsGroup.add(tower);
           placedPositions.push({ x: candidate.x, z: candidate.z });
 
           // Put a lifeguard standing on the deck (y + 2.18m)
           const { person, leftArm, rightArm, head } = this.createHumanMesh(rng, 'spectator');
+          const guardGroup = new THREE.Group();
+          guardGroup.position.set(candidate.x, exactH, candidate.z);
+          guardGroup.rotation.y = tower.rotation.y;
           person.position.set(0.5, 2.18, -0.75);
-          tower.add(person);
+          guardGroup.add(person);
+          this.crowdGroup.add(guardGroup);
           this.actors.push({
             mesh: person,
             leftArm,
@@ -377,7 +405,7 @@ export class BeachCrowdSystem {
       const angleToPeak = Math.atan2(-jx, -25 - jz) + (rng() - 0.5) * 0.45;
       person.rotation.y = angleToPeak;
 
-      this.group.add(person);
+      this.crowdGroup.add(person);
       placedPositions.push({ x: jx, z: jz });
       this.actors.push({
         mesh: person,
@@ -403,7 +431,7 @@ export class BeachCrowdSystem {
       const umbrella = this.createUmbrellaSetup(rng);
       umbrella.position.set(ux, exactH, uz);
       umbrella.rotation.y = rng() * Math.PI * 2;
-      this.group.add(umbrella);
+      this.propsGroup.add(umbrella);
       placedPositions.push({ x: ux, z: uz });
       umbrellasPlaced++;
 
@@ -428,7 +456,7 @@ export class BeachCrowdSystem {
             : Math.atan2(ux - px, uz - pz);
         person.rotation.y = yaw;
 
-        this.group.add(person);
+        this.crowdGroup.add(person);
         placedPositions.push({ x: px, z: pz });
         this.actors.push({
           mesh: person,
@@ -459,7 +487,7 @@ export class BeachCrowdSystem {
       const angleToLineup = Math.atan2(-ox, -15 - oz) + (rng() - 0.5) * 0.4;
       person.rotation.y = angleToLineup;
 
-      this.group.add(person);
+      this.crowdGroup.add(person);
       placedPositions.push({ x: ox, z: oz });
       overlookPlaced++;
       this.actors.push({
@@ -474,6 +502,7 @@ export class BeachCrowdSystem {
   }
 
   update(simTime) {
+    if (!this.group.visible || !this.crowdGroup.visible) return;
     // Subtle lifelike idle animation (head panning along the peeling wave, gentle weight sway)
     for (let i = 0; i < this.actors.length; i++) {
       const a = this.actors[i];

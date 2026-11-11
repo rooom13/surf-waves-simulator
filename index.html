@@ -305,17 +305,20 @@
         </div>
       </section>
 
-      <!-- Spray & Foam Particles -->
+      <!-- Simulation Details & Props -->
       <section class="control-section">
         <div class="section-title">
-          <span>Spray & Foam Particles</span>
-          <span class="badge subtle" id="particles-badge">Disabled</span>
+          <span>Simulation Details & Props</span>
+          <span class="badge subtle" id="details-badge">Active</span>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+        <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; margin-bottom: 3px;">
+          Particles & Spray
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px;">
           <label class="checkbox-label">
             <input type="checkbox" id="particles-barrel-toggle" />
-            <span>Barrel Lip Falling Particles</span>
+            <span>Barrel Lip & Falling Particles</span>
           </label>
 
           <label class="checkbox-label">
@@ -324,12 +327,27 @@
           </label>
         </div>
 
-        <div class="slider-row" style="margin-top: 8px;">
+        <div class="slider-row" style="margin-top: 6px; margin-bottom: 8px;">
           <div class="slider-label">
             <span>Particle Density</span>
             <strong id="val-particle-density">0%</strong>
           </div>
           <input type="range" id="particle-density" min="0" max="100" step="5" value="0" />
+        </div>
+
+        <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; margin-bottom: 3px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+          Beach Environment & Props
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="crowd-toggle" checked />
+            <span>Beach Crowd & Spectators</span>
+          </label>
+
+          <label class="checkbox-label">
+            <input type="checkbox" id="towels-toggle" checked />
+            <span>Umbrellas, Towels & Towers</span>
+          </label>
         </div>
       </section>
     </div>

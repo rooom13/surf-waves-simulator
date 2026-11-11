@@ -155,6 +155,8 @@ const oceanParams = {
   particlesBarrel: false,
   particlesWhitewater: false,
   particleDensity: 0.0,
+  crowdEnabled: true,
+  towelsEnabled: true,
 };
 
 const brushState = {
@@ -401,18 +403,26 @@ bindSlider(
   syncUIAndTelemetry
 );
 
-// --- Foam & Spray Particle Controls ---
-function updateParticlesUI() {
+// --- Simulation Details & Props Controls ---
+function updateDetailsUI() {
   const barrelToggle = document.getElementById('particles-barrel-toggle');
   const whitewaterToggle = document.getElementById('particles-whitewater-toggle');
+  const crowdToggle = document.getElementById('crowd-toggle');
+  const towelsToggle = document.getElementById('towels-toggle');
   const selectEl = document.getElementById('particles-select');
-  const badgeEl = document.getElementById('particles-badge');
+  const badgeEl = document.getElementById('details-badge');
 
   if (barrelToggle && barrelToggle.checked !== !!oceanParams.particlesBarrel) {
     barrelToggle.checked = !!oceanParams.particlesBarrel;
   }
   if (whitewaterToggle && whitewaterToggle.checked !== !!oceanParams.particlesWhitewater) {
     whitewaterToggle.checked = !!oceanParams.particlesWhitewater;
+  }
+  if (crowdToggle && crowdToggle.checked !== !!oceanParams.crowdEnabled) {
+    crowdToggle.checked = !!oceanParams.crowdEnabled;
+  }
+  if (towelsToggle && towelsToggle.checked !== !!oceanParams.towelsEnabled) {
+    towelsToggle.checked = !!oceanParams.towelsEnabled;
   }
 
   if (selectEl) {
@@ -428,24 +438,26 @@ function updateParticlesUI() {
   }
 
   if (badgeEl) {
-    if (!oceanParams.particlesBarrel && !oceanParams.particlesWhitewater) {
-      badgeEl.textContent = 'Disabled';
-      badgeEl.className = 'badge subtle';
-    } else if (!oceanParams.particlesBarrel) {
-      badgeEl.textContent = 'Whitewater Only';
-      badgeEl.className = 'badge subtle';
-    } else if (!oceanParams.particlesWhitewater) {
-      badgeEl.textContent = 'Barrel Only';
-      badgeEl.className = 'badge subtle';
-    } else if ((oceanParams.particleDensity ?? 1.0) < 0.99) {
-      badgeEl.textContent = `${Math.round((oceanParams.particleDensity ?? 1.0) * 100)}% Density`;
+    const hasParticles = oceanParams.particlesBarrel || oceanParams.particlesWhitewater;
+    const hasCrowd = !!oceanParams.crowdEnabled;
+    const hasProps = !!oceanParams.towelsEnabled;
+
+    if (hasParticles && hasCrowd && hasProps) {
+      badgeEl.textContent = 'Full Detail';
       badgeEl.className = 'badge';
+    } else if (hasCrowd && hasProps && !hasParticles) {
+      badgeEl.textContent = 'Props Only';
+      badgeEl.className = 'badge subtle';
+    } else if (!hasCrowd && !hasProps && !hasParticles) {
+      badgeEl.textContent = 'Minimal';
+      badgeEl.className = 'badge subtle';
     } else {
-      badgeEl.textContent = 'All Active';
-      badgeEl.className = 'badge';
+      badgeEl.textContent = 'Custom';
+      badgeEl.className = 'badge subtle';
     }
   }
 }
+const updateParticlesUI = updateDetailsUI;
 
 const particlesSelect = document.getElementById('particles-select');
 if (particlesSelect) {
@@ -454,10 +466,12 @@ if (particlesSelect) {
     if (val === 'all') {
       oceanParams.particlesBarrel = true;
       oceanParams.particlesWhitewater = true;
+      if (oceanParams.particleDensity <= 0.01) oceanParams.particleDensity = 0.6;
     } else if (val === 'no_barrel') {
       oceanParams.particlesBarrel = false;
       oceanParams.particlesWhitewater = true;
       spraySystem.clearType(PARTICLE_TYPE_BARREL);
+      if (oceanParams.particleDensity <= 0.01) oceanParams.particleDensity = 0.6;
     } else if (val === 'no_whitewater') {
       oceanParams.particlesBarrel = true;
       oceanParams.particlesWhitewater = false;
@@ -468,7 +482,7 @@ if (particlesSelect) {
       oceanParams.particlesWhitewater = false;
       spraySystem.clear();
     }
-    updateParticlesUI();
+    updateDetailsUI();
   });
 }
 
@@ -479,7 +493,7 @@ if (particlesBarrelToggle) {
     if (!oceanParams.particlesBarrel) {
       spraySystem.clearType(PARTICLE_TYPE_BARREL);
     }
-    updateParticlesUI();
+    updateDetailsUI();
   });
 }
 
@@ -491,7 +505,7 @@ if (particlesWhitewaterToggle) {
       spraySystem.clearType(PARTICLE_TYPE_WHITEWATER);
       spraySystem.clearType(PARTICLE_TYPE_BOARD_SPRAY);
     }
-    updateParticlesUI();
+    updateDetailsUI();
   });
 }
 
@@ -505,7 +519,25 @@ if (particleDensitySlider) {
     if (oceanParams.particleDensity <= 0.005) {
       spraySystem.clear();
     }
-    updateParticlesUI();
+    updateDetailsUI();
+  });
+}
+
+const crowdToggle = document.getElementById('crowd-toggle');
+if (crowdToggle) {
+  crowdToggle.addEventListener('change', (e) => {
+    oceanParams.crowdEnabled = e.target.checked;
+    crowdSystem.setCrowdVisible(oceanParams.crowdEnabled);
+    updateDetailsUI();
+  });
+}
+
+const towelsToggle = document.getElementById('towels-toggle');
+if (towelsToggle) {
+  towelsToggle.addEventListener('change', (e) => {
+    oceanParams.towelsEnabled = e.target.checked;
+    crowdSystem.setPropsVisible(oceanParams.towelsEnabled);
+    updateDetailsUI();
   });
 }
 
@@ -982,6 +1014,7 @@ document.getElementById('surf-dropin-btn').addEventListener('click', () => {
 renderer.domElement.addEventListener('pointerdown', (e) => surferPov.onPointerDown(e));
 window.addEventListener('pointermove', (e) => surferPov.onPointerMove(e));
 window.addEventListener('pointerup', () => surferPov.onPointerUp());
+renderer.domElement.addEventListener('wheel', (e) => surferPov.onWheel(e), { passive: true });
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
