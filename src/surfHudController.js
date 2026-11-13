@@ -1,3 +1,5 @@
+import { evaluateSurfTelemetry } from './wavePhysics.js';
+
 /**
  * Manages Surfer POV view transitions, the Surfer HUD display,
  * surfer mouse/touch inputs, and the GPS trail on the minimap.
@@ -21,12 +23,15 @@ export class SurfHudController {
     // HUD DOM Elements
     this.surfHud = document.getElementById('surf-hud');
     this.surfHudSpeed = document.getElementById('surf-hud-speed');
+    this.surfHudWaveSpeed = document.getElementById('surf-hud-wave-speed');
     this.surfHudStatus = document.getElementById('surf-hud-status');
     this.surfViewToggleBtn = document.getElementById('surf-view-toggle-btn');
     this.cameraSelectEl = document.getElementById('camera-select');
     this.hudMinimapCanvas = document.getElementById('surf-hud-minimap');
     this.surfHudMapCard = document.getElementById('surf-hud-map-card');
     this.surfHudDepthTag = document.getElementById('surf-hud-depth-tag');
+
+    this._lastWaveSpeedCalc = 0;
 
     // Minimap Player Trail
     this.playerTrail = [];
@@ -104,6 +109,18 @@ export class SurfHudController {
     if (this.cameraSelectEl) this.cameraSelectEl.value = viewMode === 'third_person' ? 'surf_third' : 'surf_pov';
     this.crowdSystem?.setVisible?.(true);
     this.updateSurfViewButton();
+    this.updateWaveSpeed(true);
+  }
+
+  updateWaveSpeed(force = false) {
+    if (!this.surfHudWaveSpeed) return;
+    const now = performance.now();
+    if (force || now - this._lastWaveSpeedCalc > 350) {
+      this._lastWaveSpeedCalc = now;
+      const t = evaluateSurfTelemetry(this.getOceanParams(), this.btyManager);
+      const kts = (t.waveSpeed * 1.94384).toFixed(1);
+      this.surfHudWaveSpeed.textContent = `${t.waveSpeed.toFixed(1)} m/s (${kts} kts)`;
+    }
   }
 
   toggleSurfView() {
@@ -128,6 +145,7 @@ export class SurfHudController {
     if (this.surfHudSpeed) {
       this.surfHudSpeed.textContent = `${this.surferPov.speed.toFixed(1)} m/s (${(this.surferPov.speed * 1.94384).toFixed(1)} kts)`;
     }
+    this.updateWaveSpeed();
     if (this.surfHudStatus) {
       if (this.surfHudStatus.textContent !== this.surferPov.statusLabel) {
         this.surfHudStatus.textContent = this.surferPov.statusLabel;

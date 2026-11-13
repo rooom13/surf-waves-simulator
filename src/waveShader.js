@@ -205,6 +205,7 @@ export const oceanFragmentShader = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uCameraPos;
   uniform int uVizMode; // 0 = realistic, 1 = xray, 2 = heatmap, 3 = wireframe
+  uniform float uReflectionStrength;
 
   varying vec3 vWorldPos;
   varying vec3 vNormal;
@@ -291,7 +292,7 @@ export const oceanFragmentShader = /* glsl */ `
     // Fresnel Sky Reflection (reduced inside the sheltered barrel pocket so emerald water shines through)
     float cosTheta = max(0.0, dot(N, V));
     float pocketShelter = 1.0 - clamp(vPocket * 0.68, 0.0, 0.75);
-    float fresnel = (0.02 + 0.90 * pow(1.0 - cosTheta, 4.4)) * pocketShelter;
+    float fresnel = (0.02 + 0.90 * pow(1.0 - cosTheta, 4.4)) * pocketShelter * uReflectionStrength;
 
     vec3 skyZenith = vec3(0.22, 0.48, 0.74);
     vec3 skyHorizon = vec3(0.66, 0.82, 0.92);
@@ -302,11 +303,12 @@ export const oceanFragmentShader = /* glsl */ `
     float foamPattern = fbmFoam(vWorldPos.xz * 0.42 + vec2(0.0, -uTime * 1.5));
     float fineBubbles = noise(vWorldPos.xz * 2.2 + vec2(uTime * 0.7, -uTime * 1.9));
 
-    // Sun Specular Highlight (modulated by micro-wavelet facets so it sparkles naturally instead of a flat white disk)
+    // Fast, smooth Blinn-Phong ocean specular (no blotchy noise cuts, ultra-lightweight GPU cost)
     vec3 H = normalize(L + V);
-    float specPower = pow(max(0.0, dot(N, H)), 220.0);
-    float facetSparkle = 0.30 + 0.70 * smoothstep(0.38, 0.78, fineBubbles);
-    vec3 sunGlitter = vec3(1.0, 0.96, 0.86) * specPower * facetSparkle * 0.75;
+    float NdotH = max(0.0, dot(N, H));
+    float spec = pow(NdotH, 64.0);
+    float tubeShelter = 1.0 - clamp(vPocket * 0.75, 0.0, 0.85);
+    vec3 sunGlitter = vec3(1.0, 0.96, 0.88) * spec * 0.68 * tubeShelter * uReflectionStrength;
 
     vec3 color = mix(waterBase + sssColor, skyReflect, fresnel * 0.62) + sunGlitter;
 
@@ -356,6 +358,7 @@ export function createOceanMaterial(bathymetryTexture, waveSimTexture) {
       uSunDir: { value: new THREE.Vector3(0.4, 0.5, -0.7).normalize() },
       uCameraPos: { value: new THREE.Vector3(0, 25, 90) },
       uVizMode: { value: 0 },
+      uReflectionStrength: { value: 1.0 },
     },
   });
 }

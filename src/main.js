@@ -73,6 +73,7 @@ const oceanParams = {
   particleDensity: 0.0,
   crowdEnabled: true,
   towelsEnabled: true,
+  reflectionsEnabled: true,
 };
 
 let isPaused = false;

@@ -201,6 +201,17 @@ export class UIController {
         this.updateDetailsUI();
       });
     }
+
+    const reflectionToggle = document.getElementById('reflection-toggle');
+    if (reflectionToggle) {
+      reflectionToggle.addEventListener('change', (e) => {
+        p.reflectionsEnabled = e.target.checked;
+        if (this.oceanMat?.uniforms?.uReflectionStrength) {
+          this.oceanMat.uniforms.uReflectionStrength.value = p.reflectionsEnabled ? 1.0 : 0.0;
+        }
+        this.updateDetailsUI();
+      });
+    }
   }
 
   _bindPresetAndModeSelectors() {
@@ -309,6 +320,7 @@ export class UIController {
     const whitewaterToggle = document.getElementById('particles-whitewater-toggle');
     const crowdToggle = document.getElementById('crowd-toggle');
     const towelsToggle = document.getElementById('towels-toggle');
+    const reflectionToggle = document.getElementById('reflection-toggle');
     const selectEl = document.getElementById('particles-select');
     const badgeEl = document.getElementById('details-badge');
 
@@ -323,6 +335,9 @@ export class UIController {
     }
     if (towelsToggle && towelsToggle.checked !== !!p.towelsEnabled) {
       towelsToggle.checked = !!p.towelsEnabled;
+    }
+    if (reflectionToggle && reflectionToggle.checked !== (p.reflectionsEnabled !== false)) {
+      reflectionToggle.checked = p.reflectionsEnabled !== false;
     }
 
     if (selectEl) {
@@ -389,6 +404,9 @@ export class UIController {
     this.oceanMat.uniforms.uWindSpeed.value = p.windSpeed;
     this.oceanMat.uniforms.uWindDir.value = p.windDir;
     this.oceanMat.uniforms.uTideLevel.value = p.tideLevel;
+    if (this.oceanMat.uniforms.uReflectionStrength) {
+      this.oceanMat.uniforms.uReflectionStrength.value = (p.reflectionsEnabled !== false) ? 1.0 : 0.0;
+    }
 
     this.updateSunLighting(p);
 

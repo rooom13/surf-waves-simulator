@@ -56,6 +56,8 @@ export class SurferPovController {
     this.statusLabel = 'Paddling in Lineup';
     this.paddlePhase = 0;
     this.mode = 'paddle';
+    this.sitWeight = 1.0; // 1.0 = sitting on board, 0.0 = prone paddling
+    this.simTimeTotal = 0;
     this.toast = '';
     this.toastTime = 0;
     this.slowTime = 0;
@@ -86,16 +88,21 @@ export class SurferPovController {
     this.boardGroup.visible = false;
     this.scene.add(this.boardGroup);
 
-    // Build 1:1 metric 3D surfer figure (prone paddling & standing ride poses)
+    // Build 1:1 metric 3D surfer figure (prone paddling, sitting straddle, & standing ride poses)
     const figure = createSurferFigure();
     this.surferFigureGroup = figure.group;
     this.surferProneGroup = figure.proneGroup;
     this.surferStandingGroup = figure.standingGroup;
+    this.surferSittingGroup = figure.sittingGroup;
+    this.standingUpperGroup = figure.standingUpperGroup;
     this.proneHead = figure.proneHead;
     this.proneArmL = figure.proneArmL;
     this.proneArmR = figure.proneArmR;
     this.standArmL = figure.standArmL;
     this.standArmR = figure.standArmR;
+    this.sitHead = figure.sitHead;
+    this.sitArmL = figure.sitArmL;
+    this.sitArmR = figure.sitArmR;
     this.boardGroup.add(this.surferFigureGroup);
   }
 
@@ -381,6 +388,7 @@ export class SurferPovController {
     this.yaw = Math.atan2(peelSign * 0.28, 1.0);
     this.vel.set(0, 0, 0);
     this.mode = 'paddle';
+    this.sitWeight = 1.0;
     this.isSprinting = false;
     this.carveInput = 0.0;
     this.turnRate = 0.0;
@@ -411,19 +419,16 @@ export class SurferPovController {
       this.showToast('No wave under you - paddle (W) into an approaching wave face, then press SPACE');
       return;
     }
-    const peelSign = this.bty.preset === 'left_point' ? 1.0 : -1.0;
-    // Pop up and angle down the line along the peel direction
-    const dirX = s.kHatX * 0.55 + peelSign * 0.83;
-    const dirZ = s.kHatZ * 0.55 + 0.22;
-    const n = Math.hypot(dirX, dirZ) || 1.0;
-    this.yaw = Math.atan2(dirX / n, dirZ / n);
-    this.vel.set((dirX / n) * 6.2, 0, (dirZ / n) * 6.2);
+    // Pop up directly in the direction the surfer is currently pointing (no direction jump)
+    const dirX = Math.sin(this.yaw);
+    const dirZ = Math.cos(this.yaw);
+    const currentSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const takeOffSpeed = Math.max(7.2, currentSpeed * 1.4);
+    this.vel.set(dirX * takeOffSpeed, 0, dirZ * takeOffSpeed);
     this.mode = 'ride';
+    this.sitWeight = 0.0;
     this.carveInput = 0.0;
     this.slowTime = 0;
-    if (this.viewMode === 'first_person') {
-      this.lookYawOffset = -peelSign * 0.2;
-    }
     this.showToast('Take-off! Carve with A / D');
   }
 
@@ -435,6 +440,7 @@ export class SurferPovController {
   update(dt, keyState, oceanParams) {
     if (!this.active || dt <= 0) return;
     if (this.toastTime > 0) this.toastTime -= dt;
+    this.simTimeTotal = (this.simTimeTotal || 0) + dt;
 
     // 1. Sample wave surface at current surfer XZ
     const s = this.sampleSurface(this.pos.x, this.pos.z, oceanParams);
@@ -486,6 +492,23 @@ export class SurferPovController {
 
     const curSpeed = Math.hypot(this.vel.x, this.vel.z);
 
+    // Smooth transition between sitting (stopped/idle in lineup) and prone paddling
+    if (paddling && !isDuckDiving) {
+      if (throttle > 0 || this.isSprinting) {
+        // Drop down quickly onto stomach to paddle
+        this.sitWeight = Math.max(0.0, this.sitWeight - dt * 4.5);
+      } else if (curSpeed < 0.95) {
+        // Stopped or drifting slowly in lineup -> sit upright straddling board
+        this.sitWeight = Math.min(1.0, this.sitWeight + dt * 2.8);
+      } else {
+        // Coasting down before settling into sitting
+        this.sitWeight = Math.max(0.0, this.sitWeight - dt * 1.5);
+      }
+    } else {
+      this.sitWeight = Math.max(0.0, this.sitWeight - dt * 5.0);
+    }
+    const isSitting = paddling && !isDuckDiving && this.sitWeight > 0.45;
+
     // 3. Rail engagement & steering
     // The rail engages progressively (≈0.2s) instead of snapping, and releases a bit faster.
     const prevCarve = this.carveInput;
@@ -498,7 +521,8 @@ export class SurferPovController {
     if (isDuckDiving) {
       turnRate = 0.35 * turnInput;
     } else if (paddling) {
-      turnRate = 0.9 * turnInput;
+      // When sitting straddling the board, surfer can rapidly pivot/swivel the board (egg-beater kick) to catch sets
+      turnRate = (isSitting ? 2.2 : 0.90) * turnInput;
     } else {
       // A planing board turns on its rail with a minimum radius R, so yaw rate = v / R.
       // Fast surfers carve tight arcs; a bogged-down board can only pivot slowly.
@@ -658,19 +682,30 @@ export class SurferPovController {
     this.isInBarrel =
       onFrontFace && nextSample.bTube > 0.34 && nextSample.eta > 0.65 && nextSample.foam < 0.88 && this.speed > 2.6;
 
-    // Ride ends once the wave has run out of steam (or the surfer is stuck in the whitewater)
-    if (!paddling) {
-      this.slowTime = this.speed < 2.4 || nextSample.foam > 0.92 ? this.slowTime + dt : 0;
-      if (this.slowTime > 2.0) {
-        this.resetToLineup(oceanParams, false);
-        this.showToast('Wave over - paddle back out and wait for the next one');
-        return;
+    // Automatic drop down to paddle position when speed drops below planing threshold
+    if (this.mode === 'ride') {
+      const lostSpeed = this.speed < 2.5 || (this.speed < 3.2 && !onFrontFace);
+      this.slowTime = lostSpeed || nextSample.foam > 0.94 ? this.slowTime + dt : 0;
+      if (this.slowTime > 0.45) {
+        this.mode = 'paddle';
+        this.sitWeight = 0.0; // Prone paddling position on the deck
+        this.isOnWave = false;
+        this.isInBarrel = false;
+        this.slowTime = 0;
+        this.showToast('Speed dropped — back to paddle position');
       }
     }
 
-    if (paddling) {
+    const isPaddling = this.mode === 'paddle';
+    const isSittingNow = isPaddling && !isDuckDiving && this.sitWeight > 0.45;
+
+    if (isPaddling) {
       if (isDuckDiving) {
         this.statusLabel = '🤿 DUCK DIVE! Punching Under Oncoming Wave Crest';
+      } else if (isSittingNow) {
+        this.statusLabel = takeOffReady
+          ? '✅ Wave approaching! Press W to paddle into it, then SPACE'
+          : '🌊 Sitting on board in lineup (W to paddle • Double-tap W to Sprint • S to Duck Dive)';
       } else {
         this.statusLabel = takeOffReady
           ? '✅ On a wave face - press SPACE to take off!'
@@ -699,7 +734,7 @@ export class SurferPovController {
     if (this.toastTime > 0 && this.toast) this.statusLabel = `⚠ ${this.toast}`;
 
     // 6. Spawn Surfboard Rail Spray Particles when planing & carving
-    if (!paddling && this.speed > 3.4 && this.spraySystem && (oceanParams?.particlesWhitewater ?? false)) {
+    if (!isPaddling && this.speed > 3.4 && this.spraySystem && (oceanParams?.particlesWhitewater ?? false)) {
       const sprayCount = Math.abs(turnInput) > 0.1 ? 3 : 1;
       const rightX = -dirZ;
       const rightZ = dirX;
@@ -726,53 +761,81 @@ export class SurferPovController {
       const diveT = Math.min(1.0, this.duckDivePhase / 0.85);
       const divePitch = -0.65 * (1.0 - diveT * 1.6);
       wavePitch = THREE.MathUtils.lerp(wavePitch, divePitch, 0.85);
+    } else if (isPaddling && this.sitWeight > 0.05) {
+      // When sitting straddling the board, surfer center of mass is near rear:
+      // Board naturally trims nose up ~7.5° (+0.13 rad) out of the water
+      wavePitch += 0.13 * this.sitWeight;
     }
     // Bank angle balances the centripetal load of the carve: tan(phi) = v * omega / g.
     // (Positive turnRate = left turn -> negative roll, matching the screen-space convention.)
-    const lateralG = paddling ? 0.0 : (this.speed * this.turnRate) / GRAVITY;
-    const targetRoll = paddling
+    const lateralG = isPaddling ? 0.0 : (this.speed * this.turnRate) / GRAVITY;
+    const targetRoll = isPaddling
       ? -turnInput * 0.12
       : -Math.max(-0.85, Math.min(0.85, Math.atan(lateralG) * 0.8));
     this.lateralG = lateralG;
     this.pitch += (wavePitch - this.pitch) * Math.min(1.0, dt * 10.0);
     this.roll += (targetRoll - this.roll) * Math.min(1.0, dt * 10.0);
 
-    // Position surfboard right on the water surface
-    this.boardGroup.position.set(this.pos.x, this.pos.y + 0.04, this.pos.z);
+    // Position surfboard right on the water surface (slight sink under sitting surfer mass)
+    const sitSink = isPaddling ? this.sitWeight * 0.025 : 0.0;
+    this.boardGroup.position.set(this.pos.x, this.pos.y + 0.04 - sitSink, this.pos.z);
     this.boardGroup.rotation.order = 'YXZ';
     this.boardGroup.rotation.y = this.yaw;
     this.boardGroup.rotation.x = this.pitch;
     this.boardGroup.rotation.z = this.roll;
 
     // 8. Animate 3D Surfer Figure & Poses
-    if (paddling) {
-      this.surferProneGroup.visible = true;
-      this.surferStandingGroup.visible = false;
-      if (isDuckDiving) {
-        // Hands gripping rails, head low to duck under oncoming crest
-        this.proneArmL.rotation.set(0.48, 0, 0.42);
-        this.proneArmR.rotation.set(0.48, 0, -0.42);
-        this.proneHead.rotation.x = -0.32;
-      } else if (throttle > 0) {
-        // Alternating freestyle paddling arm strokes
-        this.proneArmL.rotation.set(Math.sin(this.paddlePhase) * 1.15, 0, 0.25);
-        this.proneArmR.rotation.set(-Math.sin(this.paddlePhase) * 1.15, 0, -0.25);
-        this.proneHead.rotation.x = 0.22; // chin up looking ahead for sets
+    if (isPaddling) {
+      if (isSittingNow) {
+        this.surferProneGroup.visible = false;
+        this.surferStandingGroup.visible = false;
+        this.surferSittingGroup.visible = true;
+
+        // Subtle idle ocean breathing & relaxed head tracking
+        const idleBob = Math.sin((this.simTimeTotal ?? 0) * 1.6) * 0.018;
+        this.sitHead.rotation.x = -0.04 + idleBob * 0.4;
+        this.sitHead.rotation.y = turnInput * -0.22; // Look into swiveling turn
+        this.sitArmL.rotation.x = idleBob * 0.25;
+        this.sitArmR.rotation.x = idleBob * 0.25;
+        this.sitArmL.rotation.z = idleBob * 0.15;
+        this.sitArmR.rotation.z = -idleBob * 0.15;
       } else {
-        // Resting arms along the rails
-        this.proneArmL.rotation.set(0.12, 0, 0.32);
-        this.proneArmR.rotation.set(0.12, 0, -0.32);
-        this.proneHead.rotation.x = 0.12;
+        this.surferProneGroup.visible = true;
+        this.surferStandingGroup.visible = false;
+        this.surferSittingGroup.visible = false;
+        if (isDuckDiving) {
+          // Hands gripping rails, head low to duck under oncoming crest
+          this.proneArmL.rotation.set(0.48, 0, 0.42);
+          this.proneArmR.rotation.set(0.48, 0, -0.42);
+          this.proneHead.rotation.x = -0.32;
+        } else if (throttle > 0) {
+          // Alternating freestyle paddling arm strokes
+          this.proneArmL.rotation.set(Math.sin(this.paddlePhase) * 1.15, 0, 0.25);
+          this.proneArmR.rotation.set(-Math.sin(this.paddlePhase) * 1.15, 0, -0.25);
+          this.proneHead.rotation.x = 0.22; // chin up looking ahead for sets
+        } else {
+          // Resting arms along the rails
+          this.proneArmL.rotation.set(0.12, 0, 0.32);
+          this.proneArmR.rotation.set(0.12, 0, -0.32);
+          this.proneHead.rotation.x = 0.12;
+        }
       }
     } else {
       this.surferProneGroup.visible = false;
       this.surferStandingGroup.visible = true;
+      this.surferSittingGroup.visible = false;
 
-      // Dynamic athletic crouch: speed tuck, barrel tuck, and knee compression under carve g-load
-      const barrelCrouch = this.isInBarrel ? 0.25 : 0.0;
-      const speedCrouch = Math.min(0.12, (this.speed / 10) * 0.12);
-      const gLoadCrouch = Math.min(0.2, Math.abs(this.lateralG ?? 0) * 0.09);
-      this.surferStandingGroup.position.y = -(barrelCrouch + speedCrouch + gLoadCrouch);
+      // Dynamic athletic crouch: compress upper body naturally without joint separation
+      const barrelCrouch = this.isInBarrel ? 0.10 : 0.0;
+      const speedCrouch = Math.min(0.06, (this.speed / 10) * 0.06);
+      const gLoadCrouch = Math.min(0.08, Math.abs(this.lateralG ?? 0) * 0.04);
+      const totalCrouch = barrelCrouch + speedCrouch + gLoadCrouch;
+
+      this.surferStandingGroup.position.y = 0.0; // Feet stay pinned to the deck
+      if (this.standingUpperGroup) {
+        this.standingUpperGroup.position.y = -totalCrouch * 0.35;
+        this.standingUpperGroup.rotation.x = totalCrouch * 0.45;
+      }
 
       // Body leans with the board's bank (slightly less, upper body stays over the rail)
       this.surferStandingGroup.rotation.z = this.roll * 0.8;
@@ -780,13 +843,13 @@ export class SurferPovController {
 
       if (this.isInBarrel) {
         // Deep tube crouch: lead arm reaching along the barrel wall, trailing arm tucked low
-        this.standArmL.rotation.set(-0.85, 0.32, -0.32);
-        this.standArmR.rotation.set(0.38, -0.32, 0.65);
+        this.standArmL.rotation.set(-0.25, 0.15, -0.15);
+        this.standArmR.rotation.set(0.18, -0.15, 0.25);
       } else {
-        // Athletic style: lead arm trims forward, trailing arm balances carves
+        // Athletic regular style: subtle response to rail carves
         const c = this.carveInput ?? 0;
-        this.standArmL.rotation.set(-0.52 - c * 0.32, 0.20, -0.38);
-        this.standArmR.rotation.set(0.48 + c * 0.32, -0.20, 0.42);
+        this.standArmL.rotation.set(-c * 0.22, c * 0.12, -c * 0.18);
+        this.standArmR.rotation.set(c * 0.22, -c * 0.12, c * 0.18);
       }
     }
 
@@ -795,10 +858,10 @@ export class SurferPovController {
       // In 1st-person POV, hide the surfer figure so the camera doesn't clip into its own head/body
       this.surferFigureGroup.visible = false;
 
-      // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.68m when paddling prone, 0.38m during duck dive
-      const targetStanceHeight = isDuckDiving ? 0.38 : paddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
+      // Surfer eye height: crouched lower (1.18m) when tucked inside the barrel, 1.48m when carving, 0.90m when sitting, 0.72m when paddling prone, 0.38m during duck dive
+      const targetStanceHeight = isDuckDiving ? 0.38 : isSittingNow ? 0.90 : isPaddling ? 0.72 : this.isInBarrel ? 1.18 : 1.46;
       this.currentEyeH = (this.currentEyeH ?? 1.4) + (targetStanceHeight - (this.currentEyeH ?? 1.4)) * Math.min(1.0, dt * 6.0);
-      const paddleBob = paddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
+      const paddleBob = isPaddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * 0.045 : 0.0;
 
       const camX = this.pos.x - dirX * 0.18;
       const camY = this.pos.y + this.currentEyeH + paddleBob;
