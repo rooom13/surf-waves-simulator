@@ -631,22 +631,19 @@ export class HydroWaveSolver {
 
   update(dt, oceanParams) {
     // Advance PDE solver in exact 1:1 wall-clock seconds (scaled by oceanParams.timeScale)
-    // using a fixed Courant-stable physics sub-step (0.015s)
+    // using equal Courant-stable physics sub-steps (<= 0.015s) with zero remainder beat-jitter
     const timeScale = oceanParams.timeScale ?? 1.0;
-    const scaledDt = Math.min(0.15, Math.max(0.0, (dt || 0.016) * timeScale));
-    this.timeAccumulator += scaledDt;
+    const scaledDt = Math.min(0.20, Math.max(0.0, (dt || 0.016) * timeScale));
+    if (scaledDt <= 0.0001) return;
 
-    const dtSub = 0.015;
-    let stepsRun = 0;
-    const maxSubSteps = 12;
-    while (this.timeAccumulator >= dtSub && stepsRun < maxSubSteps) {
+    const maxSubDt = 0.015;
+    const numSteps = Math.min(16, Math.max(1, Math.ceil(scaledDt / maxSubDt)));
+    const dtSub = scaledDt / numSteps;
+
+    for (let s = 0; s < numSteps; s++) {
       this.stepPDE(dtSub, oceanParams);
-      this.timeAccumulator -= dtSub;
-      stepsRun++;
     }
-    if (stepsRun > 0) {
-      this.buildRenderFields(oceanParams);
-    }
+    this.buildRenderFields(oceanParams);
   }
 
   sampleAt(worldX, worldZ) {

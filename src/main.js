@@ -132,6 +132,7 @@ const uiController = new UIController({
   waveSolver,
   spraySystem,
   crowdSystem,
+  surferPov,
   oceanMat,
   minimapCanvas,
   updateSunLighting: (params) => skyLighting.updateSunLighting(params),
@@ -193,7 +194,7 @@ function animate() {
 
   if (surferPov.active) {
     if (!isPaused) {
-      surferPov.update(dt * (oceanParams.timeScale ?? 1.0), cameraController.keyState, oceanParams);
+      surferPov.update(dt * (oceanParams.timeScale ?? 1.0), cameraController.keyState, oceanParams, dt);
     }
     surfHud.updateHud();
   } else {

@@ -16,6 +16,7 @@ export class UIController {
     waveSolver,
     spraySystem,
     crowdSystem,
+    surferPov,
     oceanMat,
     minimapCanvas,
     updateSunLighting,
@@ -28,6 +29,7 @@ export class UIController {
     this.waveSolver = waveSolver;
     this.spraySystem = spraySystem;
     this.crowdSystem = crowdSystem;
+    this.surferPov = surferPov;
     this.oceanMat = oceanMat;
     this.minimapCanvas = minimapCanvas;
     this.updateSunLighting = updateSunLighting;
@@ -115,6 +117,43 @@ export class UIController {
     this._bindSlider('reef-prominence', 'val-reef-prominence', bp, 'reefProminence', (v) => `${v.toFixed(2)}x`, reGenBty);
     this._bindSlider('reef-angle', 'val-reef-angle', bp, 'reefAngle', (v) => `${v}°`, reGenBty);
     this._bindSlider('channel-depth', 'val-channel-depth', bp, 'channelDepth', (v) => `${v.toFixed(1)}x`, reGenBty);
+
+    // Surfer Mobility & Board Physics Sliders
+    if (this.surferPov && this.surferPov.mobility) {
+      const m = this.surferPov.mobility;
+      const mobilityBindings = [
+        ['surf-paddle-accel', 'val-surf-paddle-accel', 'paddleAccel', (v) => `${v.toFixed(1)} m/s²`],
+        ['surf-paddle-speed', 'val-surf-paddle-speed', 'paddleMaxSpeed', (v) => `${v.toFixed(1)} m/s`],
+        ['surf-paddle-turn', 'val-surf-paddle-turn', 'paddleTurnRate', (v) => `${v.toFixed(2)} rad/s`],
+        ['surf-takeoff-speed', 'val-surf-takeoff-speed', 'takeOffSpeed', (v) => `${v.toFixed(1)} m/s`],
+        ['surf-gravity-gain', 'val-surf-gravity-gain', 'faceGravityGain', (v) => `${v.toFixed(2)}x`],
+        ['surf-curl-push', 'val-surf-curl-push', 'curlPushGain', (v) => `${v.toFixed(2)}x`],
+        ['surf-ride-accel', 'val-surf-ride-accel', 'rideAccel', (v) => `${v.toFixed(1)} m/s²`],
+        ['surf-carve-speed', 'val-surf-carve-speed', 'carveTurnSpeed', (v) => `${v.toFixed(2)}x`],
+        ['surf-carve-radius', 'val-surf-carve-radius', 'carveMinRadius', (v) => `${v.toFixed(1)} m`],
+        ['surf-pump-gain', 'val-surf-pump-gain', 'railPumpGain', (v) => `${v.toFixed(2)}x`],
+        ['surf-slip-loss', 'val-surf-slip-loss', 'carveSlipLoss', (v) => `${v.toFixed(2)}`],
+        ['surf-ride-drag', 'val-surf-ride-drag', 'rideDrag', (v) => `${v.toFixed(2)}`],
+        ['surf-stall-brake', 'val-surf-stall-brake', 'stallBrake', (v) => `${v.toFixed(1)}x`],
+      ];
+
+      for (const [id, valId, key, fmt] of mobilityBindings) {
+        this._bindSlider(id, valId, m, key, fmt);
+      }
+
+      const resetMobilityBtn = document.getElementById('reset-mobility-btn');
+      if (resetMobilityBtn) {
+        resetMobilityBtn.addEventListener('click', () => {
+          this.surferPov.resetMobility();
+          for (const [id, valId, key, fmt] of mobilityBindings) {
+            const el = document.getElementById(id);
+            const valEl = document.getElementById(valId);
+            if (el) el.value = m[key];
+            if (valEl) valEl.textContent = fmt(m[key]);
+          }
+        });
+      }
+    }
   }
 
   _bindDetailsAndProps() {
@@ -302,12 +341,29 @@ export class UIController {
       });
     }
 
-    // Simulation Speed Selector
+    // Simulation Speed Selector (plus [ and ] keyboard shortcuts to step speed down/up while surfing)
     const speedSelect = document.getElementById('speed-select');
     if (speedSelect) {
       speedSelect.addEventListener('change', (e) => {
         p.timeScale = parseFloat(e.target.value) || 1.0;
         this.updateSetCountdownUI(true);
+        speedSelect.blur();
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+          const opts = Array.from(speedSelect.options);
+          const curIdx = Math.max(0, speedSelect.selectedIndex);
+          const nextIdx = e.code === 'BracketRight'
+            ? Math.min(opts.length - 1, curIdx + 1)
+            : Math.max(0, curIdx - 1);
+          if (nextIdx !== curIdx) {
+            speedSelect.selectedIndex = nextIdx;
+            p.timeScale = parseFloat(opts[nextIdx].value) || 1.0;
+            this.updateSetCountdownUI(true);
+          }
+        }
       });
     }
 
