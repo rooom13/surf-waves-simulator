@@ -224,6 +224,10 @@ export class BathymetryManager {
     const colAttr = this.mesh.geometry.attributes.color;
 
     for (let k = 0; k < BTY_RES * BTY_RES; k++) {
+      const i = k % BTY_RES;
+      const j = Math.floor(k / BTY_RES);
+      const x = (i / (BTY_RES - 1) - 0.5) * WORLD_SIZE;
+      const z = (j / (BTY_RES - 1) - 0.5) * WORLD_SIZE;
       const h = this.elevation[k];
       const sl = this.slope[k];
 
@@ -264,6 +268,11 @@ export class BathymetryManager {
           r = 0.32;
           g = 0.33;
           b = 0.35;
+        } else if (this.preset === 'nazare' && x < -30) {
+          // Dark rocky shoreline at the base of Farol cliff
+          r = 0.28;
+          g = 0.29;
+          b = 0.31;
         } else {
           const t = (h + 0.3) / 2.1;
           r = 0.64 + t * 0.20;
@@ -272,10 +281,10 @@ export class BathymetryManager {
         }
       } else if (h < 6.0) {
         // Rocky cliffs / jetty boulders / coastal bluffs
-        if (this.preset === 'jetty_wedge' && sl > 0.18) {
-          r = 0.38;
-          g = 0.39;
-          b = 0.41;
+        if (this.preset === 'nazare' || (this.preset === 'jetty_wedge' && sl > 0.18)) {
+          r = 0.36;
+          g = 0.36;
+          b = 0.38;
         } else {
           const t = (h - 1.8) / 4.2;
           r = 0.50 - t * 0.14;
@@ -284,10 +293,18 @@ export class BathymetryManager {
         }
       } else {
         // High headland coastal vegetation & scrub
-        const t = Math.min(1, (h - 6.0) / 9.0);
-        r = 0.24 - t * 0.05;
-        g = 0.39 + t * 0.06;
-        b = 0.22 - t * 0.04;
+        if (this.preset === 'nazare') {
+          // Weathered Atlantic limestone/granite cliff with plateau top
+          const t = Math.min(1, (h - 6.0) / 24.0);
+          r = 0.38 - t * 0.10;
+          g = 0.38 - t * 0.04;
+          b = 0.36 - t * 0.10;
+        } else {
+          const t = Math.min(1, (h - 6.0) / 9.0);
+          r = 0.24 - t * 0.05;
+          g = 0.39 + t * 0.06;
+          b = 0.22 - t * 0.04;
+        }
       }
 
       // Topographic contour lines every 1.5m

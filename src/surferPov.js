@@ -341,7 +341,8 @@ export class SurferPovController {
           const wx = (i / (N - 1) - 0.5) * WORLD_SIZE;
           const idx = j * N + i;
           const d0 = tide - elev[idx];
-          if (d0 < 1.35 || d0 > 4.6) continue;
+          const maxDepth = preset === 'nazare' ? 8.5 : 4.6;
+          if (d0 < 1.35 || d0 > maxDepth) continue;
 
           const k4 = idx * 4;
           const eta = data[k4];
@@ -546,29 +547,42 @@ export class SurferPovController {
     const slopeMag = Math.hypot(s.gradX, s.gradZ);
     const downSlopeX = slopeMag > 0.001 ? -s.gradX / slopeMag : 0.0;
     const downSlopeZ = slopeMag > 0.001 ? -s.gradZ / slopeMag : 1.0;
-    const onFrontFace = !paddling && s.frontSlope > 0.012 && s.eta > 0.18;
+    const onFrontFace = s.frontSlope > 0.012 && s.eta > 0.18;
     const faceMask = smoothstep(0.02, 0.18, s.frontSlope);
-
-    // Tangential component of gravity along the height field (same law uphill and downhill,
-    // so climbing to the lip costs exactly the speed a drop gives back).
-    const gravScale = paddling ? 4.5 : (GRAVITY * FACE_GRAVITY_GAIN) / Math.sqrt(1.0 + slopeMag * slopeMag);
-    let ax = -s.gradX * gravScale;
-    let az = -s.gradZ * gravScale;
-
     const downhillAlignment = Math.max(0.0, dirX * downSlopeX + dirZ * downSlopeZ);
 
-    if (onFrontFace) {
-      // The advancing wave and its curl shove the board shoreward (along the wave direction).
-      // The fins turn that shove into down-the-line speed when the board is angled across the face.
-      const curlPush = (1.1 + s.bTube * 2.6) * faceMask;
+    // A paddling surfer ONLY engages wave slope gravity/push when actively paddling into the wave (W pressed or already moving forward).
+    // If the surfer is stopped/idle in the lineup, unbroken swells roll underneath them with zero push!
+    const isActivelyPaddling = paddling && (throttle > 0 || (curSpeed > 1.1 && downhillAlignment > 0.25));
+    const engageWaveSlope = !paddling || isActivelyPaddling;
+
+    let ax = 0;
+    let az = 0;
+
+    if (engageWaveSlope) {
+      // Tangential component of gravity along the height field
+      const gravScale = (GRAVITY * (paddling ? 2.4 : FACE_GRAVITY_GAIN)) / Math.sqrt(1.0 + slopeMag * slopeMag);
+      ax = -s.gradX * gravScale;
+      az = -s.gradZ * gravScale;
+    }
+
+    if (onFrontFace && engageWaveSlope) {
+      // The advancing wave push accelerates the board only when riding or actively paddling into it
+      const curlPush = (1.1 + s.bTube * 2.6) * faceMask * (paddling ? 0.90 : 1.0);
       ax += s.kHatX * curlPush;
       az += s.kHatZ * curlPush;
 
-      // Rail-to-rail pumping: weighting/unweighting when switching rails adds a little energy.
-      // Rewards rhythmic S-turns on the face (not just holding a key).
-      const railPump = Math.min(2.8, Math.abs(carveRate) * 0.55) * faceMask;
-      ax += dirX * railPump;
-      az += dirZ * railPump;
+      // Rail-to-rail pumping: weighting/unweighting when standing on rail adds energy
+      if (!paddling) {
+        const railPump = Math.min(2.8, Math.abs(carveRate) * 0.55) * faceMask;
+        ax += dirX * railPump;
+        az += dirZ * railPump;
+      }
+    } else if (paddling && !isActivelyPaddling && s.foam > 0.88) {
+      // Only turbulent broken whitewater foam gently pushes a stationary board
+      const foamPush = (s.foam - 0.88) * 3.5;
+      ax += s.kHatX * foamPush;
+      az += s.kHatZ * foamPush;
     }
 
     // Surfer W/S input:
@@ -632,14 +646,29 @@ export class SurferPovController {
 
     // Hydrodynamic drag: linear skin friction + quadratic form drag (planing board).
     const isCarving = onFrontFace && Math.abs(carve) > 0.35;
-    const linDrag = paddling ? 1.5 : onFrontFace ? 0.17 : 0.5;
-    const quadDrag = paddling ? 0.0 : 0.006;
+    // When on the wave face and actively paddling or riding, the board starts hydroplaning
+    const isPlaning = onFrontFace && (isActivelyPaddling || !paddling);
+    const linDrag = paddling 
+      ? (isPlaning ? 0.35 : 2.2) 
+      : (onFrontFace ? 0.17 : 0.48);
+    const quadDrag = paddling ? (isPlaning ? 0.004 : 0.0) : 0.006;
     const sp = Math.hypot(this.vel.x, this.vel.z);
     const dragFactor = Math.exp(-dt * (linDrag + quadDrag * sp));
     this.vel.x *= dragFactor;
     this.vel.z *= dragFactor;
 
-    const maxSpeed = paddling ? (this.isSprinting ? 3.85 : 2.3) : 15.5;
+    // Anchor stopped surfers in the lineup so they don't drift or get pushed without paddling
+    if (paddling && throttle <= 0 && curSpeed < 0.95) {
+      const stopDamp = Math.exp(-dt * 3.5);
+      this.vel.x *= stopDamp;
+      this.vel.z *= stopDamp;
+    }
+
+    // Prone surfers on flat water paddle with arm power (2.4 - 3.9 m/s).
+    // On a steepening wave face, the wave accelerates the board ONLY if actively paddling into it!
+    const waveCatchSurge = (paddling && onFrontFace && isActivelyPaddling) ? Math.min(6.2, s.frontSlope * 26.0 + s.eta * 1.8) : 0.0;
+    const topSpeedLimit = this.bty?.preset === 'nazare' ? 22.5 : 16.5;
+    const maxSpeed = paddling ? (this.isSprinting ? 3.9 : 2.4) + waveCatchSurge : topSpeedLimit;
     const newSpeed = Math.hypot(this.vel.x, this.vel.z);
     if (newSpeed > maxSpeed) {
       this.vel.x = (this.vel.x / newSpeed) * maxSpeed;
@@ -707,12 +736,14 @@ export class SurferPovController {
           ? '✅ Wave approaching! Press W to paddle into it, then SPACE'
           : '🌊 Sitting on board in lineup (W to paddle • Double-tap W to Sprint • S to Duck Dive)';
       } else {
-        this.statusLabel = takeOffReady
-          ? '✅ On a wave face - press SPACE to take off!'
+        this.statusLabel = (takeOffReady && this.speed > 3.6)
+          ? '🚀 Wave caught! Accelerating down the face — press SPACE to pop up!'
+          : takeOffReady
+          ? '✅ On a wave face — press SPACE to take off!'
           : this.isSprinting
             ? '⚡ SPRINT PADDLING! (Double-Tap W)'
             : throttle > 0
-              ? '🏊 Paddling - line up with an approaching wave'
+              ? '🏊 Paddling — line up with an approaching wave'
               : '🌊 Waiting in the lineup (W to paddle • Double-tap W to Sprint • S to Duck Dive)';
       }
     } else if (this.isInBarrel) {

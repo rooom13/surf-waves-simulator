@@ -62,7 +62,7 @@ export class UIController {
 
     // Primary Swell
     this._bindSlider('swell-height', 'val-swell-height', p, 'swellHeight', (v) => `${v.toFixed(1)} m (${(v * 3.28084).toFixed(1)} ft)`, sync);
-    this._bindSlider('swell-period', 'val-swell-period', p, 'swellPeriod', (v) => `${v} s (${v >= 13 ? 'Groundswell' : v >= 9 ? 'Mid-Period' : 'Windswell'})`, sync);
+    this._bindSlider('swell-period', 'val-swell-period', p, 'swellPeriod', (v) => `${v} s (${v >= 18 ? 'Monster Groundswell' : v >= 13 ? 'Long-Period' : v >= 9 ? 'Mid-Period' : 'Windswell'})`, sync);
     this._bindSlider('swell-dir', 'val-swell-dir', p, 'swellDir', (v) => `${v > 0 ? '+' : ''}${v}° (${v === 0 ? 'Direct' : v < 0 ? 'West Peak' : 'East Peak'})`, sync);
     this._bindSlider('swell-grouping', 'val-swell-grouping', p, 'swellGrouping', (v) => `${v}%`, () => {
       this.waveSolver.warmup(p, 300);
@@ -227,28 +227,51 @@ export class UIController {
         this.applyCameraPreset(document.getElementById('camera-select')?.value || 'overview');
 
         const presetInterference = {
-          right_point: { bw: 0.35, sw: 0.75 },
-          left_point: { bw: 0.35, sw: 0.75 },
-          jetty_wedge: { bw: 0.75, sw: 1.35 },
-          reef_pass: { bw: 0.20, sw: 0.65 },
-          aframe_reef: { bw: 0.30, sw: 0.65 },
-          beach_break: { bw: 0.65, sw: 0.55 },
-          rivermouth: { bw: 0.30, sw: 0.65 },
+          right_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
+          left_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
+          jetty_wedge: { bw: 0.75, sw: 1.35, sh: 1.8, sp: 12.0, sAngle: 40.0 },
+          reef_pass: { bw: 0.20, sw: 0.65, sh: 2.5, sp: 15.0, sAngle: 30.0 },
+          aframe_reef: { bw: 0.30, sw: 0.65, sh: 2.2, sp: 13.0, sAngle: 35.0 },
+          beach_break: { bw: 0.65, sw: 0.55, sh: 1.8, sp: 11.0, sAngle: 25.0 },
+          rivermouth: { bw: 0.30, sw: 0.65, sh: 2.0, sp: 14.0, sAngle: 35.0 },
+          nazare: { bw: 1.15, sw: 2.10, sh: 8.5, sp: 18.0, sAngle: 46.0 },
         }[preset];
 
         if (presetInterference) {
           p.backwashStrength = presetInterference.bw;
           p.sideWaveStrength = presetInterference.sw;
+          if (presetInterference.sh) p.swellHeight = presetInterference.sh;
+          if (presetInterference.sp) p.swellPeriod = presetInterference.sp;
+          if (presetInterference.sAngle) p.sideWaveAngle = presetInterference.sAngle;
 
           const bwEl = document.getElementById('backwash-strength');
           const swEl = document.getElementById('sidewave-strength');
+          const shEl = document.getElementById('swell-height');
+          const spEl = document.getElementById('swell-period');
+          const saEl = document.getElementById('sidewave-angle');
+
           if (bwEl) bwEl.value = presetInterference.bw;
           if (swEl) swEl.value = presetInterference.sw;
+          if (shEl && presetInterference.sh) shEl.value = presetInterference.sh;
+          if (spEl && presetInterference.sp) spEl.value = presetInterference.sp;
+          if (saEl && presetInterference.sAngle) saEl.value = presetInterference.sAngle;
 
           const valBw = document.getElementById('val-backwash');
           const valSw = document.getElementById('val-sidewave-strength');
+          const valSh = document.getElementById('val-swell-height');
+          const valSp = document.getElementById('val-swell-period');
+          const valSa = document.getElementById('val-sidewave-angle');
+
           if (valBw) valBw.textContent = `${presetInterference.bw.toFixed(2)}x`;
           if (valSw) valSw.textContent = `${presetInterference.sw.toFixed(2)}x`;
+          if (valSh && presetInterference.sh) {
+            const ft = (presetInterference.sh * 3.28084).toFixed(1);
+            valSh.textContent = `${presetInterference.sh.toFixed(1)} m (${ft} ft)`;
+          }
+          if (valSp && presetInterference.sp) {
+            valSp.textContent = `${presetInterference.sp.toFixed(0)} s (${presetInterference.sp >= 14 ? 'Groundswell' : 'Mid-Period'})`;
+          }
+          if (valSa && presetInterference.sAngle) valSa.textContent = `${presetInterference.sAngle}°`;
         }
 
         this.waveSolver.warmup(p, 300);

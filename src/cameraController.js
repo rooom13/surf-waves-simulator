@@ -209,6 +209,27 @@ export class CameraController {
     // Shoulder camera on the open surf side (+x for left_point/jetty_wedge/rivermouth, -x for right_point/reef_pass)
     const sideSign = preset === 'left_point' || preset === 'jetty_wedge' || preset === 'rivermouth' ? 1 : -1;
 
+    if (preset === 'nazare') {
+      if (cameraMode === 'cliff') {
+        // High perched view right from Farol da Nazaré lighthouse fortress overlooking Praia do Norte
+        this.camera.position.set(-36, 42, -14);
+        this.controls.target.set(35, 6, -20);
+        return;
+      } else if (cameraMode === 'lineup') {
+        this.camera.position.set(65, 20, -115);
+        this.controls.target.set(30, 4, -20);
+        return;
+      } else if (cameraMode === 'barrel') {
+        this.camera.position.set(55, 10, -50);
+        this.controls.target.set(15, 4, -20);
+        return;
+      } else if (cameraMode === 'overview') {
+        this.camera.position.set(90, 140, 220);
+        this.controls.target.set(0, 0, -25);
+        return;
+      }
+    }
+
     if (cameraMode === 'overview') {
       this.camera.position.set(160 * sideSign, 95, 230);
       this.controls.target.set(-30 * sideSign, 0, -40);

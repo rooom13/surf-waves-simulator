@@ -165,7 +165,7 @@ export class HydroWaveSolver {
     const kx1 = Math.sin(dir1);
     const kz1 = Math.cos(dir1);
 
-    const wavelength1 = 44.0 + (T1 - 5.0) * 3.0;
+    const wavelength1 = 44.0 + (T1 - 5.0) * 3.6;
     const k1 = (2.0 * Math.PI) / wavelength1;
     const omega1 = k1 * refC;
 
@@ -184,7 +184,7 @@ export class HydroWaveSolver {
       const dir2 = (oceanParams.secDir * Math.PI) / 180;
       const kx2 = Math.sin(dir2);
       const kz2 = Math.cos(dir2);
-      const wavelength2 = 38.0 + (T2 - 5.0) * 2.8;
+      const wavelength2 = 38.0 + (T2 - 5.0) * 3.2;
       const k2 = (2.0 * Math.PI) / wavelength2;
       const omega2 = k2 * refC;
       const phase2 = k2 * (x * kx2 + z * kz2) - omega2 * t + 1.2;
@@ -320,8 +320,8 @@ export class HydroWaveSolver {
         const { groupEnv, setPacket } = this.evalGroupEnvelope(s1, t, oceanParams, refC, incDirZ);
 
         // Nonlinear dispersive effective depth c = sqrt(g * (d + H)):
-        // Prevents unrealistic 4x phase-speed shearing while producing natural 18°-25° wave refraction around points/reefs
-        const effDepth = (d) => Math.max(3.6, Math.min(9.2, d * 0.62 + 2.6));
+        // Allows deep submarine canyon channels to funnel waves at full oceanic speed
+        const effDepth = (d) => Math.max(3.6, Math.min(22.0, d * 0.72 + 2.4));
         const dCenter = effDepth(d0);
         const dLeft = effDepth(tide - elev[idx - 1]);
         const dRight = effDepth(tide - elev[idx + 1]);
@@ -392,8 +392,9 @@ export class HydroWaveSolver {
         const ratio = nextEta / Math.max(0.65, d0);
         let targetPlunge = 0.0;
 
-        // Wave breaks ONLY when crest height-to-depth ratio exceeds breaking threshold in shallow water (d0 < 2.85m)
-        if (ratio > breakRatioThreshold && d0 < 2.85) {
+        // Wave breaks when crest height-to-depth ratio exceeds breaking threshold
+        const maxBreakDepth = Math.max(3.0, H0 * 1.55);
+        if (ratio > breakRatioThreshold && d0 < maxBreakDepth) {
           const excess = ratio - breakRatioThreshold;
           // Smooth nonlinear dissipation lowers the wave crest naturally once it breaks into whitewater
           const breakDissip = Math.min(0.14, excess * 0.65 * dt);
@@ -412,7 +413,8 @@ export class HydroWaveSolver {
           targetPlunge = Math.min(1.45, excess * 3.8 * plungeFactor * (0.50 + 0.50 * frontFaceMask));
         }
 
-        this.etaNext[idx] = Math.max(-d0 * 0.78, Math.min(6.2, nextEta));
+        const maxCrest = Math.max(12.0, H0 * 2.85);
+        this.etaNext[idx] = Math.max(-d0 * 0.85, Math.min(maxCrest, nextEta));
         this.rollerNext[idx] = Math.min(1.0, nextRoller);
 
         const neighborPlunge = Math.max(
@@ -495,14 +497,15 @@ export class HydroWaveSolver {
         // and tapers inside the broken surf zone so already-broken crests fall/collapse naturally!
         const periodShoal = Math.pow(T1 / 10.0, 0.38);
         const setShoalScale = 0.20 + 0.80 * setPacket;
-        const shoalMask = smoothstep(7.5, 1.75, d0) * smoothstep(0.45, 1.80, d0) * setShoalScale;
+        const maxShoalDepth = Math.max(8.5, H0 * 1.7);
+        const shoalMask = smoothstep(maxShoalDepth, 1.75, d0) * smoothstep(0.45, 1.80, d0) * setShoalScale;
         const slopeBoost = 1.0 + Math.min(0.45, slope[idx] * 2.2) * shoalMask;
 
         let shapedEta = rawEta * (1.0 + 0.58 * shoalMask * periodShoal) * slopeBoost;
         if (shapedEta > 0.0) {
           // Cnoidal / solitary crest peaking at the breakpoint
           shapedEta += 0.45 * shoalMask * shapedEta * Math.min(1.40, shapedEta / Math.max(0.55, H0 * 0.45));
-          shapedEta = Math.min(H0 * 1.95 * Math.max(0.22, groupEnv), shapedEta);
+          shapedEta = Math.min(H0 * 2.85 * Math.max(0.22, groupEnv), shapedEta);
 
           // Post-break bore collapse (Thornton & Guza 1983): once the wave moves inside the breakpoint
           // into shallower water (d0 < 2.05m) with an active roller, its crest falls down into a lower bore!

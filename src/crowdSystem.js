@@ -338,7 +338,7 @@ export class BeachCrowdSystem {
           beachSpots.push({ x, z, h, sl });
         } else if (
           (preset === 'jetty_wedge' && x < -10 && z < 55 && h > 1.1 && sl < 0.45) ||
-          (h > 1.6 && h <= 11.5 && z < 75 && sl < 0.52)
+          (h > 1.6 && h <= (preset === 'nazare' ? 36.0 : 11.5) && z < 75 && sl < 0.52)
         ) {
           overlookSpots.push({ x, z, h, sl });
         }

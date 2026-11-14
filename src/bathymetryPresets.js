@@ -324,6 +324,83 @@ export function generateBathymetryPreset(presetName, params, baseElevation) {
         if (distToRiver >= 20) {
           h += shoreRise;
         }
+      } else if (presetName === 'nazare') {
+        // NAZARÉ, PORTUGAL (PRAIA DO NORTE & CANHÃO DA NAZARÉ):
+        // Modeled after authentic bathymetric survey and satellite topography:
+        // 1. Massive Submarine Canyon (Canhão da Nazaré):
+        //    Deep chasm plunging down to -28m to -32m, funneling unhindered Atlantic swell energy.
+        //    Canyon axis cuts diagonally from offshore right to the foot of the lighthouse cliff.
+        // 2. Continental Shelf & Praia do Norte Sandbank (North flank):
+        //    Shallow plateau (-3.2m to -5.5m) north of the canyon where shelf waves slow and refract.
+        // 3. Promontório do Sítio / Farol da Nazaré Lighthouse Cliff:
+        //    Towering rocky headland (+38m) jutting out into the ocean like a wedge between
+        //    Praia do Norte (north) and Nazaré town beach (south).
+        // 4. Praia do Norte Beach & Dunes (x > -18, z > 50).
+        // 5. Sheltered Nazaré Bay (x < -50, z > 35).
+
+        // --- 1. The Nazaré Submarine Canyon Trench ---
+        // Funneling gorge angled from deep ocean (z = -300) straight to the lighthouse point (x = -30, z = -20)
+        const canyonAxisX = -30 - (z + 20) * 0.14;
+        const distToCanyon = Math.abs(x - canyonAxisX);
+        const canyonWidth = 44.0 + Math.max(0, -z) * 0.22;
+        const inCanyonLength = smoothstep(35, -280, z);
+        const canyonProfile = Math.exp(-Math.pow(distToCanyon / canyonWidth, 1.8)) * inCanyonLength;
+        const canyonTrench = -18.5 * channelDepth * canyonProfile;
+
+        // Steep underwater amphitheater ramp where the canyon abruptly ends off the cliff (z = -25 to +10)
+        const chasmHeadRamp = smoothstep(-35, 12, z) * smoothstep(45, 0, distToCanyon) * 5.2;
+
+        // --- 2. The Praia do Norte Shallow Sandbank Plateau (North Flank) ---
+        const distBankX = x - 48;
+        const distBankZ = z + 12;
+        const bankWidthZ = distBankZ < 0 ? 42.0 : 54.0;
+        const bankEnvelope =
+          smoothstep(-15, 25, x) *
+          Math.exp(-(distBankX * distBankX) / (2 * 68 * 68)) *
+          Math.exp(-(distBankZ * distBankZ) / (2 * bankWidthZ * bankWidthZ));
+        const sandbankRise = 9.2 * reefProminence * bankEnvelope;
+
+        // --- 3. Promontório do Sítio / Farol da Nazaré Lighthouse Headland ---
+        // A rocky peninsula jutting west into the Atlantic from z = +80 forward to z = -22
+        const headlandAxisX = -32 + (z + 20) * 0.12;
+        const distFromHeadlandSpine = Math.abs(x - headlandAxisX);
+        const headlandLength = smoothstep(-26, 0, z) * smoothstep(110, 60, z);
+        const isHeadlandSpine = distFromHeadlandSpine < 22 && headlandLength > 0.01;
+
+        // --- 4. Shorelines: Praia do Norte (North) & Praia da Nazaré (South) ---
+        // Praia do Norte stretches north of the headland
+        const norteShoreZ = 54 + Math.sin(x * 0.02) * 4.0;
+        const isNorteArea = x > -18;
+        const norteRamp = 3.2 * smoothstep(norteShoreZ - 45, norteShoreZ - 6, z) * smoothstep(-22, 0, x);
+        const norteDunes = 9.5 * smoothstep(norteShoreZ - 10, norteShoreZ + 45, z) * smoothstep(-20, 5, x);
+
+        // Nazaré Town Beach (South of headland, sheltered crescent bay)
+        const isSouthBay = x < -46;
+        const southShoreZ = 42 + Math.cos((x + 70) * 0.035) * 6.0;
+        const southRamp = 2.8 * smoothstep(southShoreZ - 38, southShoreZ - 5, z) * smoothstep(-42, -55, x);
+        const southBeach = 6.5 * smoothstep(southShoreZ - 8, southShoreZ + 35, z) * smoothstep(-40, -58, x);
+
+        h += canyonTrench + chasmHeadRamp + sandbankRise + (isNorteArea ? norteRamp : 0) + (isSouthBay ? southRamp : 0) + fineNoise * 0.45;
+
+        const localShoreZ = isSouthBay ? southShoreZ : norteShoreZ;
+        if (z < localShoreZ - 8 && !isHeadlandSpine) {
+          h = softCapUnderwater(h, -1.25);
+        }
+
+        if (isNorteArea) h += norteDunes;
+        if (isSouthBay) h += southBeach;
+
+        // Sculpt the sheer Farol da Nazaré headland cliff fortress (+38m sea cliff)
+        if (isHeadlandSpine) {
+          const spineWidth = 18.0 + smoothstep(-20, 60, z) * 12.0;
+          const cliffSteepness = smoothstep(spineWidth, 4.0, distFromHeadlandSpine);
+          const boulderRoughness = Math.abs(rockNoise) * (1.2 + 2.8 * cliffSteepness);
+          const headlandElev = -1.5 + (28.0 * cliffSteepness + 10.0 * headlandLength + boulderRoughness) * headlandLength;
+          if (headlandElev > h) {
+            h = headlandElev;
+            if (h > -0.4) isAboveWaterStructure = true;
+          }
+        }
       }
 
       baseElevation[idx] = h;
