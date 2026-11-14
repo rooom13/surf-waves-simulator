@@ -86,6 +86,10 @@ export class SurferPovController {
     this.duckDivePhase = 0.0; // 0 = surface, >0 = diving underwater (duration ~1.5s)
     this.duckDiveDepth = 0.0; // vertical offset in meters (negative underwater)
 
+    // Free-fall / air drop state when falling from camera position
+    this.isFalling = false;
+    this.fallVelY = 0.0;
+
     // Camera view mode: 'third_person' (user-placed orbit view) or 'first_person' (surfer POV)
     this.viewMode = 'third_person';
     this.camPosSmoothed = null;
@@ -138,14 +142,11 @@ export class SurferPovController {
   }
 
   /**
-   * Places the surfer directly at the camera's location/view target when entering surf mode.
-   * If the camera is looking down at the water, drop the surfer at the intersection/target on the water.
+   * Places the surfer at the exact camera position in mid-air and lets them free-fall
+   * down into the water under gravity with a water splashdown upon landing.
    */
   dropSurferAtCamera(camInfo, oceanParams) {
     const camPos = camInfo.position || this.camera.position;
-    const controlsTarget = camInfo.target || this.controls.target;
-    const tide = oceanParams?.tideLevel ?? 0.2;
-
     const boundX = WORLD_SIZE * 0.45;
     const boundZ = WORLD_SIZE * 0.44;
 
@@ -153,40 +154,31 @@ export class SurferPovController {
     const camDir = new THREE.Vector3();
     this.camera.getWorldDirection(camDir);
 
-    let dropX = controlsTarget.x;
-    let dropZ = controlsTarget.z;
-
-    // If camera is pitched downward toward water plane, find intersection with water level
-    if (Math.abs(camDir.y) > 0.05 && (camPos.y - tide) * camDir.y < 0) {
-      const dist = (tide - camPos.y) / camDir.y;
-      if (dist > 1.0 && dist < 500) {
-        dropX = camPos.x + camDir.x * dist;
-        dropZ = camPos.z + camDir.z * dist;
-      }
-    } else if (controlsTarget) {
-      dropX = controlsTarget.x;
-      dropZ = controlsTarget.z;
-    } else {
-      dropX = camPos.x + camDir.x * 15.0;
-      dropZ = camPos.z + camDir.z * 15.0;
-    }
+    // Initial horizontal position directly at camera X and Z (slightly forward along gaze)
+    let dropX = camPos.x + camDir.x * 2.5;
+    let dropZ = camPos.z + camDir.z * 2.5;
 
     // Clamp inside ocean boundaries
     dropX = Math.max(-boundX, Math.min(boundX, dropX));
     dropZ = Math.max(-boundZ, Math.min(boundZ, dropZ));
 
     const surfSample = this.sampleSurface(dropX, dropZ, oceanParams);
+    const waterY = surfSample.surfaceY;
 
-    // Initial heading points in the direction camera was looking in horizontal plane
+    // Spawn at camera altitude (minimum 1.5m above water surface so there is always a drop)
+    const spawnY = Math.max(waterY + 1.5, camPos.y);
+
     let initYaw = Math.atan2(camDir.x, camDir.z);
     if (!Number.isFinite(initYaw)) initYaw = 0;
 
-    this.pos.set(dropX, surfSample.surfaceY, dropZ);
+    this.pos.set(dropX, spawnY, dropZ);
     this.yaw = initYaw;
     this.thirdPersonYaw = initYaw;
-    this.vel.set(0, 0, 0);
-    this.mode = 'paddle';
-    this.sitWeight = 1.0;
+    this.vel.set(camDir.x * 3.5, 0, camDir.z * 3.5);
+    this.isFalling = spawnY > waterY + 0.15;
+    this.fallVelY = -1.5; // Initial downward drop velocity
+    this.mode = 'ride'; // Stand ready on the board for the drop-in
+    this.sitWeight = 0.0;
     this.isSprinting = false;
     this.carveInput = 0.0;
     this.turnRate = 0.0;
@@ -197,12 +189,12 @@ export class SurferPovController {
     this.lookPitchOffset = -0.05;
     this.camPosSmoothed = null;
     this.camLookSmoothed = null;
-    this.camFollowY = surfSample.surfaceY;
+    this.camFollowY = spawnY;
     this.barrelTime = 0;
     this.slowTime = 0;
     this.isOnWave = false;
     this.isInBarrel = false;
-    this.showToast('Dropped into the water at camera location!');
+    this.showToast('🪂 Airborne drop-in from camera altitude!');
   }
 
   setViewMode(viewMode) {
@@ -772,18 +764,56 @@ export class SurferPovController {
       this.pos.x = nextX;
       this.pos.z = nextZ;
 
-      // Smoothly track vertical wave surface elevation (damped in real time at high sim speeds to prevent vertical jitter)
+      // Smoothly track vertical wave surface elevation or simulate airborne free-fall
       const targetY = nextSample.surfaceY;
-      if (isDuckDiving) {
-        const diveProgress = Math.min(1.0, this.duckDivePhase / 0.85);
-        const targetSubmerge = -1.45 * Math.sin(diveProgress * Math.PI);
-        this.duckDiveDepth += (targetSubmerge - this.duckDiveDepth) * (1.0 - Math.exp(-subDt * 8.0));
-      } else {
-        this.duckDiveDepth += (0.0 - this.duckDiveDepth) * (1.0 - Math.exp(-subDt * 10.0));
-      }
       const finalSurfY = Math.max(nextSample.seabed + 0.35, targetY + this.duckDiveDepth);
-      const ySmoothAlpha = 1.0 - Math.exp(-subRealDt * 16.0);
-      this.pos.y += (finalSurfY - this.pos.y) * ySmoothAlpha;
+
+      if (this.isFalling) {
+        // Accelerate downward under gravity
+        this.fallVelY -= GRAVITY * 1.35 * subDt;
+        this.pos.y += this.fallVelY * subDt;
+
+        if (this.pos.y <= finalSurfY + 0.05) {
+          // Splashdown on water surface!
+          this.pos.y = finalSurfY;
+          this.isFalling = false;
+          this.fallVelY = 0.0;
+
+          // Splash particles upon landing
+          if (this.spraySystem && (oceanParams?.particlesWhitewater ?? true)) {
+            for (let sp = 0; sp < 12; sp++) {
+              const ang = Math.random() * Math.PI * 2;
+              const spd = 2.0 + Math.random() * 3.5;
+              this.spraySystem.spawnParticle(
+                this.pos.x + (Math.random() - 0.5) * 0.8,
+                this.pos.y + 0.15,
+                this.pos.z + (Math.random() - 0.5) * 0.8,
+                Math.cos(ang) * spd,
+                1.8 + Math.random() * 2.2,
+                Math.sin(ang) * spd,
+                0.35 + Math.random() * 0.3,
+                1.4,
+                PARTICLE_TYPE_BOARD_SPRAY
+              );
+            }
+          }
+
+          // Land on feet riding with pop-up momentum
+          this.mode = 'ride';
+          this.sitWeight = 0.0;
+          this.showToast('🌊 Landed on the wave!');
+        }
+      } else {
+        if (isDuckDiving) {
+          const diveProgress = Math.min(1.0, this.duckDivePhase / 0.85);
+          const targetSubmerge = -1.45 * Math.sin(diveProgress * Math.PI);
+          this.duckDiveDepth += (targetSubmerge - this.duckDiveDepth) * (1.0 - Math.exp(-subDt * 8.0));
+        } else {
+          this.duckDiveDepth += (0.0 - this.duckDiveDepth) * (1.0 - Math.exp(-subDt * 10.0));
+        }
+        const ySmoothAlpha = 1.0 - Math.exp(-subRealDt * 16.0);
+        this.pos.y += (finalSurfY - this.pos.y) * ySmoothAlpha;
+      }
 
       // 5. Evaluate Surfing & Barrel State for HUD
       this.isOnWave = onFrontFace && this.speed > 3.2;
