@@ -144,6 +144,7 @@ export class SurferPovController {
   /**
    * Places the surfer at the exact camera position in mid-air and lets them free-fall
    * down into the water under gravity with a water splashdown upon landing.
+   * Keeps the camera facing the exact same direction seamlessly.
    */
   dropSurferAtCamera(camInfo, oceanParams) {
     const camPos = camInfo.position || this.camera.position;
@@ -154,9 +155,9 @@ export class SurferPovController {
     const camDir = new THREE.Vector3();
     this.camera.getWorldDirection(camDir);
 
-    // Initial horizontal position directly at camera X and Z (slightly forward along gaze)
-    let dropX = camPos.x + camDir.x * 2.5;
-    let dropZ = camPos.z + camDir.z * 2.5;
+    // Initial horizontal position directly at camera X and Z
+    let dropX = camPos.x;
+    let dropZ = camPos.z;
 
     // Clamp inside ocean boundaries
     dropX = Math.max(-boundX, Math.min(boundX, dropX));
@@ -171,9 +172,14 @@ export class SurferPovController {
     let initYaw = Math.atan2(camDir.x, camDir.z);
     if (!Number.isFinite(initYaw)) initYaw = 0;
 
+    // Compute camera pitch from gaze direction: camDir.y = sin(-pitch)
+    const horizLen = Math.hypot(camDir.x, camDir.z);
+    const initPitch = Math.max(-0.15, Math.min(1.25, -Math.atan2(camDir.y, Math.max(0.001, horizLen))));
+
     this.pos.set(dropX, spawnY, dropZ);
     this.yaw = initYaw;
     this.thirdPersonYaw = initYaw;
+    this.thirdPersonPitch = initPitch;
     this.vel.set(camDir.x * 3.5, 0, camDir.z * 3.5);
     this.isFalling = spawnY > waterY + 0.15;
     this.fallVelY = -1.5; // Initial downward drop velocity
@@ -186,7 +192,7 @@ export class SurferPovController {
     this.duckDivePhase = 0.0;
     this.duckDiveDepth = 0.0;
     this.lookYawOffset = 0.0;
-    this.lookPitchOffset = -0.05;
+    this.lookPitchOffset = Math.asin(Math.max(-0.95, Math.min(0.95, camDir.y)));
     this.camPosSmoothed = null;
     this.camLookSmoothed = null;
     this.camFollowY = spawnY;
