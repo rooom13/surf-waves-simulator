@@ -368,14 +368,113 @@
     </div>
   </aside>
 
-  <!-- Right Panel: Surfer Mobility, Terrain & Bathymetry Designer -->
+  <!-- Right Panel: Terrain, Bathymetry & Surfer Designer -->
   <aside class="panel right-panel" id="terrain-panel">
     <div class="panel-header">
-      <h2>Surfer & Reef Designer</h2>
+      <h2>Bathymetry & Surfer Designer</h2>
       <button class="collapse-btn" data-target="terrain-panel-body" title="Collapse Panel">−</button>
     </div>
 
     <div class="panel-body" id="terrain-panel-body">
+      <!-- Parametric Seabed Shaper -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Parametric Seabed Geometry</span>
+          <span class="badge subtle">Shoaling Profile</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Bottom Steepness (Slope)</span>
+            <strong id="val-seabed-slope">1.0x</strong>
+          </div>
+          <input type="range" id="seabed-slope" min="0.4" max="2.2" step="0.05" value="1.0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Reef / Sandbar Shallow Peak</span>
+            <strong id="val-reef-prominence">1.2x</strong>
+          </div>
+          <input type="range" id="reef-prominence" min="0.0" max="2.5" step="0.05" value="1.2" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Reef / Bar Angle (Peel Line)</span>
+            <strong id="val-reef-angle">0°</strong>
+          </div>
+          <input type="range" id="reef-angle" min="-45" max="45" step="1" value="0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Shoreline / Channel Cut</span>
+            <strong id="val-channel-depth">1.0x</strong>
+          </div>
+          <input type="range" id="channel-depth" min="0.0" max="2.0" step="0.1" value="1.0" />
+        </div>
+      </section>
+
+      <!-- Interactive 3D Sculpt Brush -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>3D Seabed Sculpting Brush</span>
+          <span class="badge" id="brush-status-badge">Orbit Mode</span>
+        </div>
+
+        <p class="helper-text">
+          Switch to a sculpting brush to raise shallow reefs/sandbars or carve deep channels directly in the 3D viewport.
+        </p>
+
+        <div class="brush-mode-grid">
+          <button class="brush-btn active" data-brush="none">🎥 Orbit Cam</button>
+          <button class="brush-btn" data-brush="raise">⛰️ Raise Reef/Bar</button>
+          <button class="brush-btn" data-brush="jetty">🪨 Build Jetty/Wall</button>
+          <button class="brush-btn" data-brush="lower">🕳️ Dig Channel</button>
+          <button class="brush-btn" data-brush="smooth">〰️ Smooth Terrain</button>
+        </div>
+
+        <div id="brush-settings" class="hidden-settings">
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Brush Radius</span>
+              <strong id="val-brush-radius">24 m</strong>
+            </div>
+            <input type="range" id="brush-radius" min="8" max="60" step="2" value="24" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Brush Strength</span>
+              <strong id="val-brush-strength">0.5</strong>
+            </div>
+            <input type="range" id="brush-strength" min="0.1" max="1.5" step="0.1" value="0.5" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="reset-terrain-btn" class="secondary-btn">↺ Reset Current Terrain</button>
+        </div>
+      </section>
+
+      <!-- Mini 2D Bathymetry Contour Preview -->
+      <section class="control-section">
+        <div class="section-title">
+          <span>Bathymetry Depth Map (Top-Down)</span>
+          <span class="badge subtle">Offshore ↑ / Shore ↓</span>
+        </div>
+        <div class="minimap-wrapper">
+          <canvas id="bathymetry-minimap" width="248" height="135"></canvas>
+          <div class="minimap-legend">
+            <span><i class="dot deep"></i>Deep (-18m)</span>
+            <span><i class="dot reef"></i>Reef (-1.5m)</span>
+            <span><i class="dot sand"></i>Dry Beach</span>
+            <span><i class="dot player"></i>Surfboard</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Surfer Mobility & Board Physics -->
       <section class="control-section">
         <div class="section-title">
@@ -489,105 +588,6 @@
 
         <div class="button-row">
           <button id="reset-mobility-btn" class="secondary-btn">↺ Reset Surfer Mobility</button>
-        </div>
-      </section>
-
-      <!-- Parametric Seabed Shaper -->
-      <section class="control-section">
-        <div class="section-title">
-          <span>Parametric Seabed Geometry</span>
-          <span class="badge subtle">Shoaling Profile</span>
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Bottom Steepness (Slope)</span>
-            <strong id="val-seabed-slope">1.0x</strong>
-          </div>
-          <input type="range" id="seabed-slope" min="0.4" max="2.2" step="0.05" value="1.0" />
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Reef / Sandbar Shallow Peak</span>
-            <strong id="val-reef-prominence">1.2x</strong>
-          </div>
-          <input type="range" id="reef-prominence" min="0.0" max="2.5" step="0.05" value="1.2" />
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Reef / Bar Angle (Peel Line)</span>
-            <strong id="val-reef-angle">0°</strong>
-          </div>
-          <input type="range" id="reef-angle" min="-45" max="45" step="1" value="0" />
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Shoreline / Channel Cut</span>
-            <strong id="val-channel-depth">1.0x</strong>
-          </div>
-          <input type="range" id="channel-depth" min="0.0" max="2.0" step="0.1" value="1.0" />
-        </div>
-      </section>
-
-      <!-- Interactive 3D Sculpt Brush -->
-      <section class="control-section">
-        <div class="section-title">
-          <span>3D Seabed Sculpting Brush</span>
-          <span class="badge" id="brush-status-badge">Orbit Mode</span>
-        </div>
-
-        <p class="helper-text">
-          Switch to a sculpting brush to raise shallow reefs/sandbars or carve deep channels directly in the 3D viewport.
-        </p>
-
-        <div class="brush-mode-grid">
-          <button class="brush-btn active" data-brush="none">🎥 Orbit Cam</button>
-          <button class="brush-btn" data-brush="raise">⛰️ Raise Reef/Bar</button>
-          <button class="brush-btn" data-brush="jetty">🪨 Build Jetty/Wall</button>
-          <button class="brush-btn" data-brush="lower">🕳️ Dig Channel</button>
-          <button class="brush-btn" data-brush="smooth">〰️ Smooth Terrain</button>
-        </div>
-
-        <div id="brush-settings" class="hidden-settings">
-          <div class="slider-row">
-            <div class="slider-label">
-              <span>Brush Radius</span>
-              <strong id="val-brush-radius">24 m</strong>
-            </div>
-            <input type="range" id="brush-radius" min="8" max="60" step="2" value="24" />
-          </div>
-
-          <div class="slider-row">
-            <div class="slider-label">
-              <span>Brush Strength</span>
-              <strong id="val-brush-strength">0.5</strong>
-            </div>
-            <input type="range" id="brush-strength" min="0.1" max="1.5" step="0.1" value="0.5" />
-          </div>
-        </div>
-
-        <div class="button-row">
-          <button id="reset-terrain-btn" class="secondary-btn">↺ Reset Current Terrain</button>
-        </div>
-      </section>
-
-      <!-- Mini 2D Bathymetry Contour Preview -->
-      <section class="control-section">
-        <div class="section-title">
-          <span>Bathymetry Depth Map (Top-Down)</span>
-          <span class="badge subtle">Offshore ↑ / Shore ↓</span>
-        </div>
-        <div class="minimap-wrapper">
-          <canvas id="bathymetry-minimap" width="248" height="135"></canvas>
-          <div class="minimap-legend">
-            <span><i class="dot deep"></i>Deep (-18m)</span>
-            <span><i class="dot reef"></i>Reef (-1.5m)</span>
-            <span><i class="dot sand"></i>Dry Beach</span>
-            <span><i class="dot player"></i>Surfboard</span>
-          </div>
         </div>
       </section>
     </div>
