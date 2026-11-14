@@ -122,7 +122,7 @@ export class SurferPovController {
     this.boardGroup.add(this.surferFigureGroup);
   }
 
-  enable(oceanParams, viewMode = 'third_person', fromCamera = null) {
+  enable(oceanParams, viewMode = 'third_person', dropPoint = null) {
     this.active = true;
     this.controls.enabled = false;
     this.boardGroup.visible = true;
@@ -131,8 +131,8 @@ export class SurferPovController {
     this.setViewMode(viewMode);
     this.camera.near = 0.15;
 
-    if (fromCamera) {
-      this.dropSurferAtCamera(fromCamera, oceanParams);
+    if (dropPoint && Number.isFinite(dropPoint.x) && Number.isFinite(dropPoint.z)) {
+      this.dropSurferAtPoint(dropPoint.x, dropPoint.z, oceanParams);
     } else {
       this.resetToLineup(oceanParams, true);
     }
@@ -143,48 +143,36 @@ export class SurferPovController {
   }
 
   /**
-   * Places the surfer at the exact camera position in mid-air and lets them free-fall
-   * down into the water under gravity with a water splashdown upon landing.
-   * Keeps the camera facing the exact same direction seamlessly.
+   * Drops the surfer onto the ocean surface at the 3D world point (dropX, dropZ)
+   * selected by the user's cursor, preserving the camera's horizontal heading.
    */
-  dropSurferAtCamera(camInfo, oceanParams) {
-    const camPos = camInfo.position || this.camera.position;
+  dropSurferAtPoint(dropX, dropZ, oceanParams) {
     const boundX = WORLD_SIZE * 0.45;
     const boundZ = WORLD_SIZE * 0.44;
 
-    // Determine ray direction from camera forward vector
-    const camDir = new THREE.Vector3();
-    this.camera.getWorldDirection(camDir);
-
-    // Initial horizontal position directly at camera X and Z
-    let dropX = camPos.x;
-    let dropZ = camPos.z;
-
-    // Clamp inside ocean boundaries
     dropX = Math.max(-boundX, Math.min(boundX, dropX));
     dropZ = Math.max(-boundZ, Math.min(boundZ, dropZ));
 
     const surfSample = this.sampleSurface(dropX, dropZ, oceanParams);
     const waterY = surfSample.surfaceY;
 
-    // Spawn at camera altitude (minimum 1.5m above water surface so there is always a drop)
-    const spawnY = Math.max(waterY + 1.5, camPos.y);
-
-    let initYaw = Math.atan2(camDir.x, camDir.z);
+    // Preserve the horizontal direction the camera is currently facing
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    const horizLen = Math.hypot(camDir.x, camDir.z);
+    let initYaw = horizLen > 0.05 ? Math.atan2(camDir.x, camDir.z) : 0;
     if (!Number.isFinite(initYaw)) initYaw = 0;
 
-    // Compute camera pitch from gaze direction: camDir.y = sin(-pitch)
-    const horizLen = Math.hypot(camDir.x, camDir.z);
-    const initPitch = Math.max(-0.15, Math.min(1.25, -Math.atan2(camDir.y, Math.max(0.001, horizLen))));
+    const initPitch = Math.max(0.08, Math.min(0.95, -Math.atan2(camDir.y, Math.max(0.001, horizLen))));
 
-    this.pos.set(dropX, spawnY, dropZ);
+    this.pos.set(dropX, waterY + 0.25, dropZ);
     this.yaw = initYaw;
     this.thirdPersonYaw = initYaw;
     this.thirdPersonPitch = initPitch;
-    this.vel.set(camDir.x * 3.5, 0, camDir.z * 3.5);
-    this.isFalling = spawnY > waterY + 0.15;
-    this.fallVelY = -1.5; // Initial downward drop velocity
-    this.mode = 'ride'; // Stand ready on the board for the drop-in
+    this.vel.set(Math.sin(initYaw) * 2.8, 0, Math.cos(initYaw) * 2.8);
+    this.isFalling = false;
+    this.fallVelY = 0.0;
+    this.mode = 'ride';
     this.sitWeight = 0.0;
     this.isSprinting = false;
     this.carveInput = 0.0;
@@ -193,15 +181,15 @@ export class SurferPovController {
     this.duckDivePhase = 0.0;
     this.duckDiveDepth = 0.0;
     this.lookYawOffset = 0.0;
-    this.lookPitchOffset = Math.asin(Math.max(-0.95, Math.min(0.95, camDir.y)));
+    this.lookPitchOffset = 0.0;
     this.camPosSmoothed = null;
     this.camLookSmoothed = null;
-    this.camFollowY = spawnY;
+    this.camFollowY = waterY;
     this.barrelTime = 0;
     this.slowTime = 0;
     this.isOnWave = false;
     this.isInBarrel = false;
-    this.showToast('🪂 Airborne drop-in from camera altitude!');
+    this.showToast('🏄 Dropped in at cursor position!');
   }
 
   setViewMode(viewMode) {

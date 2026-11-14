@@ -100,9 +100,11 @@ cameraController = new CameraController({
   isSculpting: () => sculptBrush?.isSculpting() ?? false,
   isSurferActive: () => surferPov.active,
   onSurferKey: (e) => surfHud.handleSurferKey(e),
-  onSurfModeRequest: (mode, camInfo) => {
+  onSurfModeRequest: (mode, dropPoint) => {
     if (mode === 'exit') surfHud.exitSurfPov(false);
-    else surfHud.enterSurfPov(mode, camInfo);
+    else if (mode === 'cancel_drop') surfHud.cancelDropPlacement();
+    else if (surferPov.active) surfHud.enterSurfPov(mode, dropPoint);
+    else surfHud.startDropPlacement(mode);
   },
 });
 surferPov.controls = cameraController.controls;

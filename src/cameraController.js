@@ -116,10 +116,8 @@ export class CameraController {
       const tag = document.activeElement ? document.activeElement.tagName : '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
 
-      if (this.isSurferActive()) {
-        const handled = this.onSurferKey(e);
-        if (handled) return;
-      }
+      const handled = this.onSurferKey(e);
+      if (handled) return;
 
       if (e.code in this.keyState) {
         this.keyState[e.code] = true;
@@ -193,24 +191,18 @@ export class CameraController {
 
   applyCameraPreset(cameraMode) {
     if (cameraMode === 'surf_third') {
-      const camInfo = {
-        position: this.camera.position.clone(),
-        target: this.controls.target.clone(),
-      };
-      this.onSurfModeRequest('third_person', camInfo);
+      this.onSurfModeRequest('third_person');
       return;
     }
     if (cameraMode === 'surf_pov') {
-      const camInfo = {
-        position: this.camera.position.clone(),
-        target: this.controls.target.clone(),
-      };
-      this.onSurfModeRequest('first_person', camInfo);
+      this.onSurfModeRequest('first_person');
       return;
     }
 
     if (this.isSurferActive()) {
       this.onSurfModeRequest('exit');
+    } else {
+      this.onSurfModeRequest('cancel_drop');
     }
 
     const preset = this.getBtyPreset();
