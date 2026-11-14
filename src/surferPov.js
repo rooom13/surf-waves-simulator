@@ -117,7 +117,7 @@ export class SurferPovController {
     this.boardGroup.add(this.surferFigureGroup);
   }
 
-  enable(oceanParams, viewMode = 'third_person') {
+  enable(oceanParams, viewMode = 'third_person', fromCamera = null) {
     this.active = true;
     this.controls.enabled = false;
     this.boardGroup.visible = true;
@@ -125,10 +125,84 @@ export class SurferPovController {
     this.camLookSmoothed = null;
     this.setViewMode(viewMode);
     this.camera.near = 0.15;
-    this.resetToLineup(oceanParams, true);
+
+    if (fromCamera) {
+      this.dropSurferAtCamera(fromCamera, oceanParams);
+    } else {
+      this.resetToLineup(oceanParams, true);
+    }
+
     if (this.thirdPersonYaw === null || this.thirdPersonYaw === undefined) {
       this.thirdPersonYaw = this.yaw;
     }
+  }
+
+  /**
+   * Places the surfer directly at the camera's location/view target when entering surf mode.
+   * If the camera is looking down at the water, drop the surfer at the intersection/target on the water.
+   */
+  dropSurferAtCamera(camInfo, oceanParams) {
+    const camPos = camInfo.position || this.camera.position;
+    const controlsTarget = camInfo.target || this.controls.target;
+    const tide = oceanParams?.tideLevel ?? 0.2;
+
+    const boundX = WORLD_SIZE * 0.45;
+    const boundZ = WORLD_SIZE * 0.44;
+
+    // Determine ray direction from camera forward vector
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+
+    let dropX = controlsTarget.x;
+    let dropZ = controlsTarget.z;
+
+    // If camera is pitched downward toward water plane, find intersection with water level
+    if (Math.abs(camDir.y) > 0.05 && (camPos.y - tide) * camDir.y < 0) {
+      const dist = (tide - camPos.y) / camDir.y;
+      if (dist > 1.0 && dist < 500) {
+        dropX = camPos.x + camDir.x * dist;
+        dropZ = camPos.z + camDir.z * dist;
+      }
+    } else if (controlsTarget) {
+      dropX = controlsTarget.x;
+      dropZ = controlsTarget.z;
+    } else {
+      dropX = camPos.x + camDir.x * 15.0;
+      dropZ = camPos.z + camDir.z * 15.0;
+    }
+
+    // Clamp inside ocean boundaries
+    dropX = Math.max(-boundX, Math.min(boundX, dropX));
+    dropZ = Math.max(-boundZ, Math.min(boundZ, dropZ));
+
+    const surfSample = this.sampleSurface(dropX, dropZ, oceanParams);
+
+    // Initial heading points in the direction camera was looking in horizontal plane
+    let initYaw = Math.atan2(camDir.x, camDir.z);
+    if (!Number.isFinite(initYaw)) initYaw = 0;
+
+    this.pos.set(dropX, surfSample.surfaceY, dropZ);
+    this.yaw = initYaw;
+    this.thirdPersonYaw = initYaw;
+    this.vel.set(0, 0, 0);
+    this.mode = 'paddle';
+    this.sitWeight = 1.0;
+    this.isSprinting = false;
+    this.carveInput = 0.0;
+    this.turnRate = 0.0;
+    this.prevWDown = false;
+    this.duckDivePhase = 0.0;
+    this.duckDiveDepth = 0.0;
+    this.lookYawOffset = 0.0;
+    this.lookPitchOffset = -0.05;
+    this.camPosSmoothed = null;
+    this.camLookSmoothed = null;
+    this.camFollowY = surfSample.surfaceY;
+    this.barrelTime = 0;
+    this.slowTime = 0;
+    this.isOnWave = false;
+    this.isInBarrel = false;
+    this.showToast('Dropped into the water at camera location!');
   }
 
   setViewMode(viewMode) {

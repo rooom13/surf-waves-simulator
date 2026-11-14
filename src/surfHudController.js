@@ -41,8 +41,12 @@ export class SurfHudController {
   }
 
   _bindEvents() {
-    document.getElementById('surf-third-btn')?.addEventListener('click', () => this.enterSurfPov('third_person'));
-    document.getElementById('surf-pov-btn')?.addEventListener('click', () => this.enterSurfPov('first_person'));
+    const getCamInfo = () => ({
+      position: this.surferPov.camera.position.clone(),
+      target: this.surferPov.controls?.target ? this.surferPov.controls.target.clone() : null,
+    });
+    document.getElementById('surf-third-btn')?.addEventListener('click', () => this.enterSurfPov('third_person', getCamInfo()));
+    document.getElementById('surf-pov-btn')?.addEventListener('click', () => this.enterSurfPov('first_person', getCamInfo()));
     document.getElementById('surf-view-toggle-btn')?.addEventListener('click', () => this.toggleSurfView());
     document.getElementById('surf-exit-btn')?.addEventListener('click', () => this.exitSurfPov(true));
     document.getElementById('surf-dropin-btn')?.addEventListener('click', () => {
@@ -93,7 +97,7 @@ export class SurfHudController {
       : 'Switch to Third-Person Low Bird-View (Key: C or V)';
   }
 
-  enterSurfPov(viewMode = 'third_person') {
+  enterSurfPov(viewMode = 'third_person', fromCamera = null) {
     if (this.surferPov.active) {
       if (viewMode && this.surferPov.viewMode !== viewMode) {
         this.surferPov.setViewMode(viewMode);
@@ -105,7 +109,7 @@ export class SurfHudController {
     this.surfHud?.classList.remove('hidden');
     document.activeElement?.blur?.();
     const params = this.getOceanParams();
-    this.surferPov.enable(params, viewMode);
+    this.surferPov.enable(params, viewMode, fromCamera);
     if (this.cameraSelectEl) this.cameraSelectEl.value = viewMode === 'third_person' ? 'surf_third' : 'surf_pov';
     this.crowdSystem?.setVisible?.(true);
     this.updateSurfViewButton();

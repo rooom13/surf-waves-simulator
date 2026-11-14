@@ -193,11 +193,19 @@ export class CameraController {
 
   applyCameraPreset(cameraMode) {
     if (cameraMode === 'surf_third') {
-      this.onSurfModeRequest('third_person');
+      const camInfo = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+      this.onSurfModeRequest('third_person', camInfo);
       return;
     }
     if (cameraMode === 'surf_pov') {
-      this.onSurfModeRequest('first_person');
+      const camInfo = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+      this.onSurfModeRequest('first_person', camInfo);
       return;
     }
 

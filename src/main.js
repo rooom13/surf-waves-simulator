@@ -100,9 +100,9 @@ cameraController = new CameraController({
   isSculpting: () => sculptBrush?.isSculpting() ?? false,
   isSurferActive: () => surferPov.active,
   onSurferKey: (e) => surfHud.handleSurferKey(e),
-  onSurfModeRequest: (mode) => {
+  onSurfModeRequest: (mode, camInfo) => {
     if (mode === 'exit') surfHud.exitSurfPov(false);
-    else surfHud.enterSurfPov(mode);
+    else surfHud.enterSurfPov(mode, camInfo);
   },
 });
 surferPov.controls = cameraController.controls;
