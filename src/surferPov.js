@@ -97,6 +97,7 @@ export class SurferPovController {
     this.thirdPersonYaw = null;
     this.thirdPersonPitch = 0.38;
     this.thirdPersonDist = 6.2;
+    this.firstPersonFov = 68;
 
     // Build 1:1 metric 3D surfboard mesh (2.05m x 0.52m shortboard)
     this.boardGroup = createSurfboardMesh();
@@ -212,7 +213,7 @@ export class SurferPovController {
         this.thirdPersonYaw = this.yaw;
       }
     } else {
-      this.camera.fov = 68;
+      this.camera.fov = this.firstPersonFov ?? 68;
       this.surferFigureGroup.visible = false;
     }
     this.camera.updateProjectionMatrix();
@@ -272,8 +273,16 @@ export class SurferPovController {
   }
 
   onWheel(e) {
-    if (!this.active || this.viewMode !== 'third_person') return;
-    this.thirdPersonDist = Math.max(3.0, Math.min(22.0, (this.thirdPersonDist ?? 6.2) + e.deltaY * 0.006));
+    if (!this.active) return;
+    if (this.viewMode === 'third_person') {
+      this.thirdPersonDist = Math.max(3.0, Math.min(22.0, (this.thirdPersonDist ?? 6.2) + e.deltaY * 0.006));
+    } else {
+      // In first-person POV, mouse wheel zooms FOV (from wide 110° to zoomed 35°)
+      const deltaFov = e.deltaY * 0.04;
+      this.firstPersonFov = Math.max(35, Math.min(110, (this.firstPersonFov ?? 68) + deltaFov));
+      this.camera.fov = this.firstPersonFov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   /**
