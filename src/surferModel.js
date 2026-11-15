@@ -150,32 +150,38 @@ export function createSurferFigure() {
   });
 
   // =========================================================================
-  // 1. PRONE GROUP (Paddling flat on deck with arched cobra chest)
+  // 1. PRONE GROUP (Paddling flat on deck with arched cobra chest + articulated hips/knees)
   // =========================================================================
   const prone = new THREE.Group();
   prone.name = 'SurferProne';
+
+  // Upper body group pivoted at hips (0, 0.08, -0.15) so torso/arms can lift during push-up
+  const proneUpper = new THREE.Group();
+  proneUpper.position.set(0, 0.08, -0.15);
+  prone.add(proneUpper);
 
   // Prone Torso: horizontal along Z, chest lifted in classic surf paddle arch
   const proneTorsoGeom = new THREE.CapsuleGeometry(0.12, 0.38, 4, 10);
   proneTorsoGeom.rotateX(Math.PI / 2);
   const proneTorso = new THREE.Mesh(proneTorsoGeom, wetsuitMat);
-  proneTorso.position.set(0, 0.11, 0.04);
+  proneTorso.position.set(0, 0.03, 0.19);
   proneTorso.rotation.x = -0.26; // Arch chest upward ~15°
-  prone.add(proneTorso);
+  proneUpper.add(proneTorso);
 
   // Wetsuit back accent panel
   const proneAccentGeom = new THREE.BoxGeometry(0.19, 0.04, 0.22);
   const proneAccent = new THREE.Mesh(proneAccentGeom, wetsuitAccentMat);
-  proneAccent.position.set(0, 0.17, 0.08);
+  proneAccent.position.set(0, 0.09, 0.23);
   proneAccent.rotation.x = -0.26;
-  prone.add(proneAccent);
+  proneUpper.add(proneAccent);
 
   // Prone Head: looking forward along +Z toward the nose
   const proneHeadGeom = new THREE.SphereGeometry(0.105, 10, 8);
   const proneHead = new THREE.Mesh(proneHeadGeom, skinMat);
-  proneHead.position.set(0, 0.22, 0.28);
+  proneHead.position.set(0, 0.14, 0.43);
+  proneHead.rotation.order = 'ZYX';
   proneHead.rotation.x = 0.12;
-  prone.add(proneHead);
+  proneUpper.add(proneHead);
 
   const proneHairGeom = new THREE.SphereGeometry(0.11, 8, 6);
   proneHairGeom.scale(1.0, 0.55, 1.05);
@@ -183,23 +189,39 @@ export function createSurferFigure() {
   proneHair.position.set(0, 0.04, -0.02);
   proneHead.add(proneHair);
 
-  // Prone Legs: extending back toward tail (-Z)
-  const proneLegGeom = new THREE.CapsuleGeometry(0.06, 0.52, 4, 8);
-  proneLegGeom.rotateX(Math.PI / 2);
-  const proneLegL = new THREE.Mesh(proneLegGeom, wetsuitMat);
-  proneLegL.position.set(-0.075, 0.065, -0.42);
-  const proneLegR = new THREE.Mesh(proneLegGeom, wetsuitMat);
-  proneLegR.position.set(0.075, 0.065, -0.42);
-  prone.add(proneLegL, proneLegR);
+  // Prone Articulated Legs: hip -> thigh -> knee -> shin -> foot (extending back along -Z)
+  const proneThighEnd = new THREE.Vector3(0, -0.01, -0.27);
+  const proneShinEnd = new THREE.Vector3(0, -0.015, -0.27);
+  const proneKneeCapGeom = new THREE.SphereGeometry(0.056, 8, 8);
 
-  // Prone Feet: resting on deck near tail
-  const proneFootL = createFootMesh(skinMat);
-  proneFootL.position.set(-0.075, 0.04, -0.72);
-  proneFootL.rotation.x = -0.55;
-  const proneFootR = createFootMesh(skinMat);
-  proneFootR.position.set(0.075, 0.04, -0.72);
-  proneFootR.rotation.x = -0.55;
-  prone.add(proneFootL, proneFootR);
+  const createProneLeg = (sideSign) => {
+    const hip = new THREE.Group();
+    hip.position.set(sideSign * 0.075, 0.075, -0.16);
+    const thigh = createLimbSegment(new THREE.Vector3(0, 0, 0), proneThighEnd, 0.058, wetsuitMat);
+    const knee = new THREE.Group();
+    knee.position.copy(proneThighEnd);
+    const kneeCap = new THREE.Mesh(proneKneeCapGeom, wetsuitMat);
+    const shin = createLimbSegment(new THREE.Vector3(0, 0, 0), proneShinEnd, 0.050, wetsuitMat);
+    const foot = createFootMesh(skinMat);
+    foot.position.copy(proneShinEnd);
+    foot.rotation.x = -0.55;
+    knee.add(kneeCap, shin, foot);
+    hip.add(thigh, knee);
+    return { hip, knee, foot };
+  };
+
+  const { hip: proneHipL, knee: proneKneeL, foot: proneFootL } = createProneLeg(-1);
+  const { hip: proneHipR, knee: proneKneeR, foot: proneFootR } = createProneLeg(1);
+  prone.add(proneHipL, proneHipR);
+
+  // Prone Shoulders (clavicle bar + joint spheres so arms stay attached)
+  const shoulderBarGeom = new THREE.CapsuleGeometry(0.056, 0.26, 4, 8);
+  shoulderBarGeom.rotateZ(Math.PI / 2);
+  const proneShoulders = new THREE.Mesh(shoulderBarGeom, wetsuitMat);
+  proneShoulders.position.set(0, 0.08, 0.32);
+  proneUpper.add(proneShoulders);
+
+  const shoulderCapGeom = new THREE.SphereGeometry(0.056, 10, 8);
 
   // Prone Arms: shoulder + elbow pivots for natural paddling stroke
   const proneUpperLen = 0.25;
@@ -212,10 +234,11 @@ export function createSurferFigure() {
 
   const createProneArm = (sideSign) => {
     const shoulder = new THREE.Group();
-    shoulder.position.set(sideSign * 0.17, 0.16, 0.18);
+    shoulder.position.set(sideSign * 0.155, 0.08, 0.32);
 
+    const shoulderCap = new THREE.Mesh(shoulderCapGeom, wetsuitMat);
     const upper = createLimbSegment(new THREE.Vector3(0, 0, 0), proneUpperEnd, 0.044, wetsuitMat);
-    shoulder.add(upper);
+    shoulder.add(shoulderCap, upper);
 
     const elbow = new THREE.Group();
     elbow.position.copy(proneUpperEnd);
@@ -234,7 +257,7 @@ export function createSurferFigure() {
   const { shoulder: proneArmL, elbow: proneElbowL } = createProneArm(-1);
   const { shoulder: proneArmR, elbow: proneElbowR } = createProneArm(1);
 
-  prone.add(proneArmL, proneArmR);
+  proneUpper.add(proneArmL, proneArmR);
   group.add(prone);
 
   // =========================================================================
@@ -318,18 +341,12 @@ export function createSurferFigure() {
   standTorso.rotation.y = 1.25;
   upperBody.add(standTorso);
 
-  // Wetsuit chest cyan accent panel (clearly identifies the front/chest on +X)
-  const standAccentGeom = new THREE.BoxGeometry(0.06, 0.18, 0.22);
-  const standAccent = new THREE.Mesh(standAccentGeom, wetsuitAccentMat);
-  standAccent.position.set(0.10, 0.72, -0.14);
-  upperBody.add(standAccent);
-
   // --- Head & Neck ---
   // Head is turned forward (+Z) looking directly down the peeling wave wall
   const standHeadGeom = new THREE.SphereGeometry(0.11, 10, 8);
   const standHead = new THREE.Mesh(standHeadGeom, skinMat);
   standHead.position.set(0.0, 0.94, -0.12);
-  standHead.rotation.y = 0.12; // Looking along +Z (nose of board)
+  standHead.rotation.y = 0.0; // Looking straight along +Z (nose of board)
   standHead.rotation.x = -0.05;
   upperBody.add(standHead);
 
@@ -351,6 +368,7 @@ export function createSurferFigure() {
   // LEAD ARM (LEFT ARM): front shoulder at +Z (z = -0.04), reaching FORWARD along +Z down the line
   const standArmL = new THREE.Group();
   standArmL.position.set(-0.02, 0.80, -0.04);
+  const standShoulderCapL = new THREE.Mesh(shoulderCapGeom, wetsuitMat);
   const localElbowL = new THREE.Vector3(0.08, -0.10, 0.18);
   const localHandL = new THREE.Vector3(0.12, -0.16, 0.38);
 
@@ -360,12 +378,13 @@ export function createSurferFigure() {
   const armLFore = createLimbSegment(localElbowL, localHandL, 0.040, skinMat);
   const handL = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
   handL.position.copy(localHandL);
-  standArmL.add(armLUpper, elbowCapL, armLFore, handL);
+  standArmL.add(standShoulderCapL, armLUpper, elbowCapL, armLFore, handL);
   upperBody.add(standArmL);
 
   // TRAILING ARM (RIGHT ARM): back shoulder at -Z (z = -0.26), held back and up for balance
   const standArmR = new THREE.Group();
   standArmR.position.set(0.04, 0.80, -0.26);
+  const standShoulderCapR = new THREE.Mesh(shoulderCapGeom, wetsuitMat);
   const localElbowR = new THREE.Vector3(0.04, -0.06, -0.16);
   const localHandR = new THREE.Vector3(0.08, -0.10, -0.32);
 
@@ -375,7 +394,7 @@ export function createSurferFigure() {
   const armRFore = createLimbSegment(localElbowR, localHandR, 0.040, skinMat);
   const handR = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
   handR.position.copy(localHandR);
-  standArmR.add(armRUpper, elbowCapR, armRFore, handR);
+  standArmR.add(standShoulderCapR, armRUpper, elbowCapR, armRFore, handR);
   upperBody.add(standArmR);
 
   group.add(standing);
@@ -461,11 +480,15 @@ export function createSurferFigure() {
   sitRightFoot.rotation.y = 0.12;
   sitting.add(sitRightThigh, sitRightKneeMesh, sitRightCalf, sitRightFoot);
 
-  // --- Arms resting comfortably along the rails/deck (Seamlessly connected) ---
-  // Note: in board-local space (+Z forward, +Y up), -X is surfer's right and +X is surfer's left.
+  // --- Shoulders & Arms (connected via clavicle bar + rounded shoulder joints) ---
+  const sitShoulders = new THREE.Mesh(shoulderBarGeom, wetsuitMat);
+  sitShoulders.position.set(0.0, 0.35, -0.185);
+  sitting.add(sitShoulders);
+
   // Left Arm (pivot at shoulder)
   const sitArmL = new THREE.Group();
-  sitArmL.position.set(-0.16, 0.35, -0.18);
+  sitArmL.position.set(-0.145, 0.35, -0.185);
+  const sitShoulderCapL = new THREE.Mesh(shoulderCapGeom, wetsuitMat);
   const sitLocalElbowL = new THREE.Vector3(-0.06, -0.16, 0.06);
   const sitLocalHandOffsetL = new THREE.Vector3(0.0, -0.13, 0.14);
 
@@ -478,12 +501,13 @@ export function createSurferFigure() {
   const sitHandL = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
   sitHandL.position.copy(sitLocalHandOffsetL);
   sitElbowL.add(sitForeL, sitHandL);
-  sitArmL.add(sitUpL, sitElbowCapL, sitElbowL);
+  sitArmL.add(sitShoulderCapL, sitUpL, sitElbowCapL, sitElbowL);
   sitting.add(sitArmL);
 
   // Right Arm (pivot at shoulder)
   const sitArmR = new THREE.Group();
-  sitArmR.position.set(0.16, 0.35, -0.18);
+  sitArmR.position.set(0.145, 0.35, -0.185);
+  const sitShoulderCapR = new THREE.Mesh(shoulderCapGeom, wetsuitMat);
   const sitLocalElbowR = new THREE.Vector3(0.06, -0.16, 0.06);
   const sitLocalHandOffsetR = new THREE.Vector3(0.0, -0.13, 0.14);
 
@@ -496,7 +520,7 @@ export function createSurferFigure() {
   const sitHandR = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
   sitHandR.position.copy(sitLocalHandOffsetR);
   sitElbowR.add(sitForeR, sitHandR);
-  sitArmR.add(sitUpR, sitElbowCapR, sitElbowR);
+  sitArmR.add(sitShoulderCapR, sitUpR, sitElbowCapR, sitElbowR);
   sitting.add(sitArmR);
 
   group.add(sitting);
@@ -509,6 +533,13 @@ export function createSurferFigure() {
   return {
     group,
     proneGroup: prone,
+    proneUpper,
+    proneHipL,
+    proneKneeL,
+    proneFootL,
+    proneHipR,
+    proneKneeR,
+    proneFootR,
     standingGroup: standing,
     standingUpperGroup: upperBody,
     sittingGroup: sitting,

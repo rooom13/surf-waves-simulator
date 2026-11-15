@@ -66,7 +66,8 @@ const oceanParams = {
   windSpeed: 10.0,
   windDir: 10.0,
   tideLevel: 0.2,
-  sunElevation: 28.0,
+  sunElevation: 125.0,
+  cloudCover: 0.35,
   timeScale: 1.0,
   particlesBarrel: false,
   particlesWhitewater: false,
@@ -186,6 +187,7 @@ function animate() {
     const simDt = dt * (oceanParams.timeScale ?? 1.0);
     simTime += simDt;
     oceanMat.uniforms.uTime.value = simTime;
+    skyLighting.skyMat.uniforms.uTime.value = simTime;
     waveSolver.update(dt, oceanParams);
     spraySystem.update(simDt, oceanParams, waveSolver);
     crowdSystem.update(simTime);

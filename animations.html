@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Surfer Animation Visualizer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b1523;
+      color: #e2e8f0;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+    }
+    #sidebar {
+      width: 280px;
+      background: rgba(15, 23, 42, 0.94);
+      border-right: 1px solid rgba(148, 163, 184, 0.18);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      z-index: 10;
+    }
+    h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: 0.2px;
+    }
+    .sub {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #38bdf8;
+      margin-bottom: 6px;
+    }
+    .anim-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 5px;
+    }
+    button {
+      background: rgba(30, 41, 59, 0.9);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.12s ease;
+    }
+    button:hover {
+      background: rgba(51, 65, 85, 0.95);
+      color: #ffffff;
+    }
+    button.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .row {
+      display: flex;
+      gap: 6px;
+    }
+    .row button {
+      flex: 1;
+      text-align: center;
+      padding: 6px 4px;
+    }
+    .control-group {
+      background: rgba(30, 41, 59, 0.45);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .slider-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #cbd5e1;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+    #viewport {
+      flex: 1;
+      position: relative;
+    }
+    #hud-info {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #cbd5e1;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <div>
+      <h1>Animation Visualizer</h1>
+      <div class="sub">Isolated surfer &amp; board rig inspector</div>
+    </div>
+
+    <div>
+      <div class="section-label">Animations</div>
+      <div class="anim-grid" id="anim-buttons">
+        <button data-anim="sit_idle" class="active">1. Sit (Idle)</button>
+        <button data-anim="sit_turn_left">1b. Sit (Turn Left)</button>
+        <button data-anim="sit_turn_right">1c. Sit (Turn Right)</button>
+        <button data-anim="paddle">2. Paddle (Prone)</button>
+        <button data-anim="paddle_sprint">2b. Paddle (Sprint)</button>
+        <button data-anim="paddle_idle">2c. Paddle (Idle Prone)</button>
+        <button data-anim="duck_dive">2d. Duck Dive</button>
+        <button data-anim="takeoff">3. Take-Off (Pop-Up)</button>
+        <button data-anim="stand_ride">4. Stand (Ride)</button>
+        <button data-anim="stand_carve_l">4b. Stand (Carve Left)</button>
+        <button data-anim="stand_carve_r">4c. Stand (Carve Right)</button>
+        <button data-anim="stand_barrel">4d. Stand (Barrel Crouch)</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="section-label" style="margin-bottom: 0;">Playback</div>
+      <div class="row">
+        <button id="btn-play-pause" class="active">Pause</button>
+        <button id="btn-replay">Restart</button>
+      </div>
+      <div class="slider-head">
+        <span>Speed</span>
+        <strong id="val-speed">1.0x</strong>
+      </div>
+      <input type="range" id="speed-slider" min="0.05" max="2.0" step="0.05" value="1.0" />
+      <div class="slider-head">
+        <span>Phase / Progress</span>
+        <strong id="val-phase">0.00</strong>
+      </div>
+      <input type="range" id="phase-slider" min="0" max="1" step="0.005" value="0" />
+    </div>
+
+    <div class="control-group">
+      <div class="section-label" style="margin-bottom: 0;">Camera Angle</div>
+      <div class="row">
+        <button data-cam="iso">3/4</button>
+        <button data-cam="side">Side</button>
+        <button data-cam="front">Front</button>
+        <button data-cam="top">Top</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="viewport">
+    <div id="hud-info">Drag to orbit • Scroll to zoom • Translucent plane = water surface (y = 0)</div>
+  </main>
+
+  <script type="module" src="/src/animVisualizer.js"></script>
+</body>
+</html>

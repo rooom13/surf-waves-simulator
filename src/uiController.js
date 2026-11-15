@@ -104,7 +104,28 @@ export class UIController {
       this.syncUIAndTelemetry();
     });
 
-    this._bindSlider('sun-elevation', 'val-sun-elevation', p, 'sunElevation', (v) => `${v}° (${v < 15 ? 'Golden Hour' : v < 38 ? 'Afternoon' : 'Midday'})`, sync);
+    const formatSunLabel = (v) => {
+      if (v <= 20) return 'Sunrise';
+      if (v <= 62) return 'Morning';
+      if (v <= 118) return 'Midday';
+      if (v <= 159) return 'Afternoon';
+      return 'Sunset';
+    };
+
+    this._bindSlider('sun-elevation', 'val-sun-elevation', p, 'sunElevation', formatSunLabel, sync);
+
+    const cloudInput = document.getElementById('cloud-cover');
+    const cloudVal = document.getElementById('val-cloud-cover');
+    if (cloudInput && cloudVal) {
+      cloudInput.value = Math.round((p.cloudCover ?? 0.35) * 100);
+      cloudVal.textContent = `${cloudInput.value}%`;
+      cloudInput.addEventListener('input', (e) => {
+        const pct = parseFloat(e.target.value);
+        p.cloudCover = pct / 100;
+        cloudVal.textContent = `${Math.round(pct)}%`;
+        sync();
+      });
+    }
 
     // Parametric Bathymetry Sliders
     const bp = this.btyManager.params;

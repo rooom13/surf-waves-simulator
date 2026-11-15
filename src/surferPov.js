@@ -112,6 +112,13 @@ export class SurferPovController {
     const figure = createSurferFigure();
     this.surferFigureGroup = figure.group;
     this.surferProneGroup = figure.proneGroup;
+    this.proneUpper = figure.proneUpper;
+    this.proneHipL = figure.proneHipL;
+    this.proneKneeL = figure.proneKneeL;
+    this.proneFootL = figure.proneFootL;
+    this.proneHipR = figure.proneHipR;
+    this.proneKneeR = figure.proneKneeR;
+    this.proneFootR = figure.proneFootR;
     this.surferStandingGroup = figure.standingGroup;
     this.surferSittingGroup = figure.sittingGroup;
     this.standingUpperGroup = figure.standingUpperGroup;
@@ -500,17 +507,20 @@ export class SurferPovController {
   }
 
   /**
-   * Take-off is only allowed while the surfer is on the rising front face of a real wave.
+   * Take-off is allowed when the surfer has enough speed or is on the rising front face of a wave.
    */
   canTakeOff(sample) {
-    return sample.eta > 0.45 && sample.frontSlope > 0.03 && sample.depth > 0.9;
+    const curSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const hasEnoughSpeed = curSpeed >= 3.0;
+    const onWaveFace = sample.eta > 0.45 && sample.frontSlope > 0.03;
+    return sample.depth > 0.9 && (hasEnoughSpeed || onWaveFace);
   }
 
   takeOff(oceanParams) {
     if (!this.active || this.mode !== 'paddle') return;
     const s = this.sampleSurface(this.pos.x, this.pos.z, oceanParams);
     if (!this.canTakeOff(s)) {
-      this.showToast('No wave under you - paddle (W) into an approaching wave face, then press SPACE');
+      this.showToast('Build more speed (W) or catch a wave face, then press SPACE');
       return;
     }
     // Pop up directly in the direction the surfer is currently pointing (no direction jump)
@@ -812,11 +822,12 @@ export class SurferPovController {
             }
           }
 
-          // Land on feet riding with pop-up momentum
-          this.mode = 'ride';
-          this.sitWeight = 0.0;
-          this.takeoffProgress = 1.0;
-          this.showToast('🌊 Landed on the wave!');
+          // Preserve current stance on splashdown (no automatic pop-up from paddle)
+          if (this.mode === 'ride') {
+            this.sitWeight = 0.0;
+            this.takeoffProgress = 1.0;
+            this.showToast('🌊 Landed on the wave!');
+          }
         }
       } else {
         if (isDuckDiving) {
@@ -913,7 +924,7 @@ export class SurferPovController {
     }
 
     // 7. Update 3D Surfboard & First-Person Camera Pose (smoothed in real wall-clock time so fast-forward never chatters)
-    const TAKEOFF_DURATION = 0.36;
+    const TAKEOFF_DURATION = 0.48;
     if (this.mode === 'ride' && this.takeoffProgress < 1.0) {
       this.takeoffProgress = Math.min(1.0, this.takeoffProgress + frameRealDt / TAKEOFF_DURATION);
     }
@@ -957,12 +968,12 @@ export class SurferPovController {
 
         const idleBob = Math.sin((this.simTimeTotal ?? 0) * 1.6) * 0.018;
         this.sitHead.rotation.x = -0.04 + idleBob * 0.4;
-        this.sitHead.rotation.y = turnInput * -0.22;
+        this.sitHead.rotation.y = turnInput * 0.22;
 
         if (Math.abs(turnInput) > 0.05) {
-          this.sitTurnBlend += (1.0 - this.sitTurnBlend) * (1.0 - Math.exp(-frameRealDt * 8.0));
+          this.sitTurnBlend += (1.0 - this.sitTurnBlend) * (1.0 - Math.exp(-frameRealDt * 24.0));
           this.sitTurnDir = Math.sign(turnInput); // +1 = left (+yaw), -1 = right (-yaw)
-          this.sitTurnPhase = (this.sitTurnPhase + frameRealDt * 4.8) % (Math.PI * 2);
+          this.sitTurnPhase = (this.sitTurnPhase + frameRealDt * 22.0) % (Math.PI * 2);
         } else {
           this.sitTurnBlend *= Math.exp(-frameRealDt * 7.0);
           if (this.sitTurnBlend < 0.001) {
@@ -977,8 +988,8 @@ export class SurferPovController {
 
         if (this.sitTurnBlend > 0.001) {
           // Note: in board-local space (+Z forward, +Y up), -X (sitArmL) is surfer's right, +X (sitArmR) is surfer's left.
-          // Turning right (sitTurnDir = -1): right hand (-X) pulls back->front in water & returns front->back in air;
-          // left hand (+X) pulls front->back in water & returns back->front in air. Turning left is the opposite.
+          // Turning right (sitTurnDir = -1): right hand (-X, sitArmL) pulls back->front in water & returns front->back in air;
+          // left hand (+X, sitArmR) pulls front->back in water & returns back->front in air. Turning left is the opposite.
           const inWater = Math.sin(this.sitTurnPhase);
           const waterPull = inWater > 0 ? inWater : 0.0;
           const airLift = inWater < 0 ? -inWater : 0.0;
@@ -1016,6 +1027,13 @@ export class SurferPovController {
         this.surferSittingGroup.visible = false;
         this.surferProneGroup.position.set(0, 0, 0);
         this.surferProneGroup.rotation.set(0, 0, 0);
+        this.proneUpper.rotation.set(0, 0, 0);
+        this.proneHipL.rotation.set(0, 0, 0);
+        this.proneKneeL.rotation.set(0, 0, 0);
+        this.proneFootL.rotation.set(-0.55, 0, 0);
+        this.proneHipR.rotation.set(0, 0, 0);
+        this.proneKneeR.rotation.set(0, 0, 0);
+        this.proneFootR.rotation.set(-0.55, 0, 0);
         if (isDuckDiving) {
           this.proneArmL.rotation.set(-0.55, 0, -0.35);
           this.proneArmR.rotation.set(-0.55, 0, 0.35);
@@ -1033,7 +1051,8 @@ export class SurferPovController {
 
           this.proneArmR.rotation.set(c * 0.85, 0, 0.45 + recR * 0.60);
           this.proneElbowR.rotation.set(-0.35 - recR * 1.00, 0, -(0.20 + recR * 0.15));
-          this.proneHead.rotation.x = 0.22;
+          this.surferProneGroup.rotation.z = s * 0.055;
+          this.proneHead.rotation.set(0.22, 0, 0);
         } else {
           this.proneArmL.rotation.set(0.08, 0, -0.38);
           this.proneArmR.rotation.set(0.08, 0, 0.38);
@@ -1043,10 +1062,10 @@ export class SurferPovController {
         }
       }
     } else if (isTakingOff) {
-      // Snappy pop-up / take-off biomechanics (0.36s total, all limbs attached):
-      // 0.00..0.18: hands plant on rails by chest, quick cobra press
-      // 0.18..0.42: explosive push-up & hip lift to clear feet
-      // 0.42..1.00: feet plant in low forward-angled crouch, untwist & rise into standing ride pose
+      // 3-step pop-up biomechanics (0.48s total, all limbs attached):
+      // 0.00..0.30: push with arms to lift torso/chest while hips & legs stay flat
+      // 0.30..0.68: step front foot forward under chest & bend back knee onto tail
+      // 0.68..1.00: stand up smoothly from low crouch into standing ride pose
       const t = this.takeoffProgress;
       const barrelCrouch = this.isInBarrel ? 0.10 : 0.0;
       const speedCrouch = Math.min(0.06, (this.speed / 10) * 0.06);
@@ -1054,51 +1073,112 @@ export class SurferPovController {
       const totalCrouch = barrelCrouch + speedCrouch + gLoadCrouch;
       const c = this.carveInput ?? 0;
 
-      if (t < 0.42) {
+      if (t < 0.74) {
         this.surferProneGroup.visible = true;
         this.surferStandingGroup.visible = false;
         this.surferSittingGroup.visible = false;
 
-        if (t < 0.18) {
-          const p1 = t / 0.18;
+        if (t < 0.28) {
+          // Step 1: Plant hands on rails (elbows up) and push to lift torso
+          const p1 = t / 0.28;
           const s1 = p1 * p1 * (3 - 2 * p1);
-          this.surferProneGroup.position.set(0, s1 * 0.10, 0);
-          this.surferProneGroup.rotation.set(-0.14 * s1, 0, 0);
-          this.proneArmL.rotation.set(0.10 + s1 * 0.12, 0, -(0.32 - s1 * 0.10));
-          this.proneArmR.rotation.set(0.10 + s1 * 0.12, 0, 0.32 - s1 * 0.10);
-          this.proneElbowL.rotation.set(-0.90 * s1, 0, 0.20);
-          this.proneElbowR.rotation.set(-0.90 * s1, 0, -0.20);
-          this.proneHead.rotation.x = 0.12 + 0.10 * s1;
-        } else {
-          const p2 = (t - 0.18) / 0.24;
+          this.surferProneGroup.position.set(0, 0, 0);
+          this.surferProneGroup.rotation.set(0, 0, 0);
+          this.proneUpper.rotation.set(-1.05 * s1, 0, 0);
+          this.proneArmL.rotation.set(1.95 - 0.60 * s1, 0, -(0.24 - 0.08 * s1));
+          this.proneArmR.rotation.set(1.95 - 0.60 * s1, 0, 0.24 - 0.08 * s1);
+          this.proneElbowL.rotation.set(-2.10 + 1.05 * s1, 0, 0.12 * (1 - s1));
+          this.proneElbowR.rotation.set(-2.10 + 1.05 * s1, 0, -0.12 * (1 - s1));
+          this.proneHead.rotation.x = 0.12 + 0.55 * s1;
+          this.proneHipL.rotation.set(0, 0, 0);
+          this.proneKneeL.rotation.set(0, 0, 0);
+          this.proneHipR.rotation.set(0, 0, 0);
+          this.proneKneeR.rotation.set(0, 0, 0);
+        } else if (t < 0.54) {
+          // Step 2a: Pike hips up, plant front & back feet flat/horizontal onto the board without clipping
+          const p2 = (t - 0.28) / 0.26;
           const s2 = p2 * p2 * (3 - 2 * p2);
-          this.surferProneGroup.position.set(0, 0.10 + s2 * 0.14, -0.08 * s2);
-          this.surferProneGroup.rotation.set(-0.14 + s2 * 0.18, -0.22 * s2, 0);
-          this.proneArmL.rotation.set(0.22 + s2 * 0.18, 0, -(0.22 - s2 * 0.06));
-          this.proneArmR.rotation.set(0.22 + s2 * 0.18, 0, 0.22 - s2 * 0.06);
-          this.proneElbowL.rotation.set(-0.90 + s2 * 0.68, 0, 0.20);
-          this.proneElbowR.rotation.set(-0.90 + s2 * 0.68, 0, -0.20);
-          this.proneHead.rotation.x = 0.22 - 0.08 * s2;
+          const hipLx = -2.45 * s2;
+          const kneeLx = 1.60 * s2;
+          const hipRx = -0.75 * s2;
+          const kneeRx = 0.10 * s2;
+          const ankleYL = 0.075 + 0.27 * (Math.sin(hipLx) + Math.sin(hipLx + kneeLx));
+          const ankleYR = 0.075 + 0.27 * (Math.sin(hipRx) + Math.sin(hipRx + kneeRx));
+          const kneeYL = 0.075 + 0.27 * Math.sin(hipLx);
+          const kneeYR = 0.075 + 0.27 * Math.sin(hipRx);
+          const minLegY = Math.min(ankleYL, ankleYR, kneeYL, kneeYR);
+          const groundedPy = Math.max(0.28 * s2, 0.055 - minLegY);
+
+          this.surferProneGroup.position.set(0, groundedPy, 0.02 * s2);
+          this.surferProneGroup.rotation.set(0, 0, 0);
+          this.proneUpper.rotation.set(-1.05 + 0.10 * s2, 0, 0);
+          this.proneArmL.rotation.set(1.35 - 0.35 * s2, 0, -0.16);
+          this.proneArmR.rotation.set(1.35 - 0.35 * s2, 0, 0.16);
+          this.proneElbowL.rotation.set(-1.05 + 0.20 * s2, 0, 0);
+          this.proneElbowR.rotation.set(-1.05 + 0.20 * s2, 0, 0);
+          this.proneHead.rotation.set(0.67 - 0.10 * s2, 0, 0);
+
+          this.proneHipL.rotation.set(hipLx, 0, -0.08 * s2);
+          this.proneKneeL.rotation.set(kneeLx, 0, 0);
+          this.proneFootL.rotation.set(THREE.MathUtils.lerp(-0.55, -(hipLx + kneeLx), s2), 0.78 * s2, 0);
+          this.proneHipR.rotation.set(hipRx, 0, 0.08 * s2);
+          this.proneKneeR.rotation.set(kneeRx, 0, 0);
+          this.proneFootR.rotation.set(THREE.MathUtils.lerp(-0.55, -(hipRx + kneeRx), s2), (Math.PI / 2) * s2, 0);
+        } else {
+          // Step 2b: Lift hands off board, keep feet horizontal on deck, and transition into standing ride pose
+          const p2b = (t - 0.54) / 0.20;
+          const s2b = p2b * p2b * (3 - 2 * p2b);
+          const hipLx = THREE.MathUtils.lerp(-2.45, -2.35, s2b);
+          const kneeLx = THREE.MathUtils.lerp(1.60, 0.70, s2b);
+          const hipRx = THREE.MathUtils.lerp(-0.75, -1.08, s2b);
+          const kneeRx = THREE.MathUtils.lerp(0.10, 0.10, s2b);
+          const ankleYL = 0.075 + 0.27 * (Math.sin(hipLx) + Math.sin(hipLx + kneeLx));
+          const ankleYR = 0.075 + 0.27 * (Math.sin(hipRx) + Math.sin(hipRx + kneeRx));
+          const minLegY = Math.min(ankleYL, ankleYR);
+          const groundedPy = 0.055 - minLegY;
+
+          this.surferProneGroup.position.set(0.08 * s2b, groundedPy, THREE.MathUtils.lerp(0.02, 0.0, s2b));
+          this.surferProneGroup.rotation.set(0, 0, 0);
+          this.proneUpper.rotation.set(THREE.MathUtils.lerp(-0.95, -1.52, s2b), 0, 1.15 * s2b);
+          this.proneArmL.rotation.set(THREE.MathUtils.lerp(1.00, 0.55, s2b), 0, THREE.MathUtils.lerp(-0.16, -0.95, s2b));
+          this.proneArmR.rotation.set(THREE.MathUtils.lerp(1.00, 0.45, s2b), 0, THREE.MathUtils.lerp(0.16, 1.05, s2b));
+          this.proneElbowL.rotation.set(THREE.MathUtils.lerp(-0.85, -0.35, s2b), 0, 0);
+          this.proneElbowR.rotation.set(THREE.MathUtils.lerp(-0.85, -0.25, s2b), 0, 0);
+          this.proneHead.rotation.set(THREE.MathUtils.lerp(0.57, 1.45, s2b), 0, -1.15 * s2b);
+
+          this.proneHipL.rotation.set(hipLx, 0, THREE.MathUtils.lerp(-0.08, 0.0, s2b));
+          this.proneKneeL.rotation.set(kneeLx, 0, 0);
+          this.proneFootL.rotation.set(-(hipLx + kneeLx), 0.78, 0);
+          this.proneHipR.rotation.set(hipRx, 0, THREE.MathUtils.lerp(0.08, 0.0, s2b));
+          this.proneKneeR.rotation.set(kneeRx, 0, 0);
+          this.proneFootR.rotation.set(-(hipRx + kneeRx), Math.PI / 2, 0);
         }
       } else {
+        // Step 3: Seamless handoff at matching height/orientation into standing ride pose
         this.surferProneGroup.visible = false;
         this.surferStandingGroup.visible = true;
         this.surferSittingGroup.visible = false;
         this.surferProneGroup.position.set(0, 0, 0);
         this.surferProneGroup.rotation.set(0, 0, 0);
+        this.proneUpper.rotation.set(0, 0, 0);
+        this.proneHipL.rotation.set(0, 0, 0);
+        this.proneKneeL.rotation.set(0, 0, 0);
+        this.proneFootL.rotation.set(-0.55, 0, 0);
+        this.proneHipR.rotation.set(0, 0, 0);
+        this.proneKneeR.rotation.set(0, 0, 0);
+        this.proneFootR.rotation.set(-0.55, 0, 0);
 
-        const p3 = (t - 0.42) / 0.58;
+        const p3 = (t - 0.74) / 0.26;
         const s3 = p3 * p3 * (3 - 2 * p3);
 
-        // Keep upperBody offsets small so thighs stay firmly attached to knees
-        this.surferStandingGroup.position.y = THREE.MathUtils.lerp(-0.08, 0.0, s3);
-        this.surferStandingGroup.rotation.y = THREE.MathUtils.lerp(-0.55, 0.0, s3);
+        this.surferStandingGroup.position.set(0, 0, 0);
+        this.surferStandingGroup.rotation.y = 0.0;
         this.surferStandingGroup.rotation.z = this.roll * 0.8 * s3;
-        this.surferStandingGroup.rotation.x = THREE.MathUtils.lerp(0.06, this.speed > 5.5 ? 0.06 : 0.0, s3);
+        this.surferStandingGroup.rotation.x = THREE.MathUtils.lerp(0.0, this.speed > 5.5 ? 0.06 : 0.0, s3);
 
         if (this.standingUpperGroup) {
           this.standingUpperGroup.position.y = THREE.MathUtils.lerp(-0.08, -totalCrouch * 0.35, s3);
-          this.standingUpperGroup.rotation.x = THREE.MathUtils.lerp(0.12, totalCrouch * 0.45, s3);
+          this.standingUpperGroup.rotation.x = THREE.MathUtils.lerp(0.10, totalCrouch * 0.45, s3);
         }
 
         const targetArmLX = this.isInBarrel ? -0.25 : -c * 0.22;
@@ -1109,14 +1189,14 @@ export class SurferPovController {
         const targetArmRZ = this.isInBarrel ? 0.25 : c * 0.18;
 
         this.standArmL.rotation.set(
-          THREE.MathUtils.lerp(0.42, targetArmLX, s3),
-          THREE.MathUtils.lerp(0.12, targetArmLY, s3),
-          THREE.MathUtils.lerp(-0.18, targetArmLZ, s3)
+          THREE.MathUtils.lerp(0.25, targetArmLX, s3),
+          THREE.MathUtils.lerp(0.10, targetArmLY, s3),
+          THREE.MathUtils.lerp(-0.12, targetArmLZ, s3)
         );
         this.standArmR.rotation.set(
-          THREE.MathUtils.lerp(0.35, targetArmRX, s3),
-          THREE.MathUtils.lerp(-0.12, targetArmRY, s3),
-          THREE.MathUtils.lerp(0.18, targetArmRZ, s3)
+          THREE.MathUtils.lerp(0.20, targetArmRX, s3),
+          THREE.MathUtils.lerp(-0.10, targetArmRY, s3),
+          THREE.MathUtils.lerp(0.12, targetArmRZ, s3)
         );
       }
     } else {
@@ -1130,7 +1210,7 @@ export class SurferPovController {
       const gLoadCrouch = Math.min(0.08, Math.abs(this.lateralG ?? 0) * 0.04);
       const totalCrouch = barrelCrouch + speedCrouch + gLoadCrouch;
 
-      this.surferStandingGroup.position.y = 0.0;
+      this.surferStandingGroup.position.set(0, 0, 0);
       if (this.standingUpperGroup) {
         this.standingUpperGroup.position.y = -totalCrouch * 0.35;
         this.standingUpperGroup.rotation.x = totalCrouch * 0.45;
@@ -1157,9 +1237,9 @@ export class SurferPovController {
       let targetStanceHeight = isDuckDiving ? 0.38 : isSittingNow ? 0.90 : isPaddling ? 0.72 : rideEyeH;
       if (isTakingOff) {
         const t = this.takeoffProgress;
-        targetStanceHeight = t < 0.42
-          ? THREE.MathUtils.lerp(0.72, 0.98, t / 0.42)
-          : THREE.MathUtils.lerp(0.98, rideEyeH, (t - 0.42) / 0.58);
+        targetStanceHeight = t < 0.74
+          ? THREE.MathUtils.lerp(0.72, 1.18, t / 0.74)
+          : THREE.MathUtils.lerp(1.18, rideEyeH, (t - 0.74) / 0.26);
       }
       this.currentEyeH = (this.currentEyeH ?? 1.4) + (targetStanceHeight - (this.currentEyeH ?? 1.4)) * (1.0 - Math.exp(-frameRealDt * 6.0));
       const paddleBob = isPaddling && !isDuckDiving && throttle > 0 ? Math.sin(this.paddlePhase * 2.0) * (0.045 / Math.sqrt(timeScale)) : 0.0;
