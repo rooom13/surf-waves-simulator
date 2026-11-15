@@ -330,6 +330,7 @@ export class UIController {
         else if (mode === 'xray') this.oceanMat.uniforms.uVizMode.value = 1;
         else if (mode === 'heatmap') this.oceanMat.uniforms.uVizMode.value = 2;
         else if (mode === 'wireframe') this.oceanMat.uniforms.uVizMode.value = 3;
+        else if (mode === 'textured') this.oceanMat.uniforms.uVizMode.value = 4;
       });
     }
 

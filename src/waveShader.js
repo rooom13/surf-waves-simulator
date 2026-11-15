@@ -204,8 +204,10 @@ export const oceanFragmentShader = /* glsl */ `
   uniform float uTime;
   uniform vec3 uSunDir;
   uniform vec3 uCameraPos;
-  uniform int uVizMode; // 0 = realistic, 1 = xray, 2 = heatmap, 3 = wireframe
+  uniform int uVizMode; // 0 = realistic, 1 = xray, 2 = heatmap, 3 = wireframe, 4 = textured
   uniform float uReflectionStrength;
+  uniform float uWindSpeed;
+  uniform float uWindDir;
 
   varying vec3 vWorldPos;
   varying vec3 vNormal;
@@ -237,6 +239,81 @@ export const oceanFragmentShader = /* glsl */ `
     v += 0.28 * noise(p * 2.3 + vec2(1.7, 3.2));
     v += 0.22 * noise(p * 5.1 - vec2(2.4, 1.1));
     return v;
+  }
+
+  // 2D Simplex noise with analytic gradient: returns vec3(value, d/dx, d/dy)
+  // Uses C2-continuous radial kernel on a triangular lattice so specular highlights have no square-grid artifacts.
+  vec3 snoiseGrad(vec2 v) {
+    const float F2 = 0.366025403784439;
+    const float G2 = 0.211324865405187;
+
+    vec2 i = floor(v + dot(v, vec2(F2)));
+    vec2 x0 = v - i + dot(i, vec2(G2));
+
+    vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec2 x1 = x0 - i1 + G2;
+    vec2 x2 = x0 - 1.0 + 2.0 * G2;
+
+    vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x1, x1), dot(x2, x2)), 0.0);
+    vec3 m2 = m * m;
+    vec3 m4 = m2 * m2;
+
+    // Pseudo-random unit-ish gradients per simplex vertex
+    float a0 = hash(i) * 6.2831853;
+    float a1 = hash(i + i1) * 6.2831853;
+    float a2 = hash(i + 1.0) * 6.2831853;
+    vec2 g0 = vec2(cos(a0), sin(a0));
+    vec2 g1 = vec2(cos(a1), sin(a1));
+    vec2 g2 = vec2(cos(a2), sin(a2));
+
+    vec3 p = vec3(dot(g0, x0), dot(g1, x1), dot(g2, x2));
+    float val = 32.0 * dot(m4, p);
+
+    vec3 temp = -8.0 * m2 * m * p;
+    vec2 grad = 32.0 * (
+      m4.x * g0 + temp.x * x0 +
+      m4.y * g1 + temp.y * x1 +
+      m4.z * g2 + temp.z * x2
+    );
+
+    return vec3(val, grad);
+  }
+
+  // Option A: Natural wind-chop ripples using rotated, wind-elongated C2 simplex octaves
+  // (no straight-line sine grids, no swirly fingerprint warps, Nyquist anti-aliased per octave)
+  vec3 ripplePattern(vec2 p, vec2 windVec, float t, float pixelScale) {
+    vec2 windPerp = vec2(-windVec.y, windVec.x);
+    // Align to wind, compressed slightly along wind so chop crests stretch across the wind
+    vec2 wp = vec2(dot(p, windVec) * 1.35, dot(p, windPerp) * 0.75);
+
+    const mat2 r1 = mat2(0.82, -0.57, 0.57, 0.82);
+    const mat2 ir1 = mat2(0.82, 0.57, -0.57, 0.82);
+    const mat2 r2 = mat2(-0.48, -0.88, 0.88, -0.48);
+    const mat2 ir2 = mat2(-0.48, 0.88, -0.88, -0.48);
+    const mat2 r3 = mat2(0.31, 0.95, -0.95, 0.31);
+    const mat2 ir3 = mat2(0.31, -0.95, 0.95, 0.31);
+
+    float aa0 = 1.0 - smoothstep(0.14, 0.40, 0.65 * pixelScale);
+    float aa1 = 1.0 - smoothstep(0.14, 0.40, 1.35 * pixelScale);
+    float aa2 = 1.0 - smoothstep(0.14, 0.40, 2.75 * pixelScale);
+    float aa3 = 1.0 - smoothstep(0.14, 0.40, 5.40 * pixelScale);
+
+    vec3 n0 = snoiseGrad(wp * 0.65 + vec2(-t * 0.38, t * 0.08)) * aa0;
+    vec3 n1 = snoiseGrad((r1 * wp) * 1.35 + vec2(-t * 0.55, -t * 0.14)) * aa1;
+    vec3 n2 = snoiseGrad((r2 * wp) * 2.75 + vec2(t * 0.42, -t * 0.35)) * aa2;
+    vec3 n3 = snoiseGrad((r3 * wp) * 5.40 + vec2(-t * 0.48, t * 0.52)) * aa3;
+
+    vec2 gLocal =
+      0.46 * 0.65 * n0.yz +
+      0.28 * 1.35 * (ir1 * n1.yz) +
+      0.17 * 2.75 * (ir2 * n2.yz) +
+      0.09 * 5.40 * (ir3 * n3.yz);
+
+    // Map gradient back from wind-aligned space to world XZ
+    vec2 gWorld = windVec * (gLocal.x * 1.35) + windPerp * (gLocal.y * 0.75);
+    float h = 0.46 * n0.x + 0.28 * n1.x + 0.17 * n2.x + 0.09 * n3.x;
+
+    return vec3(h * 0.5 + 0.5, gWorld);
   }
 
   void main() {
@@ -273,6 +350,36 @@ export const oceanFragmentShader = /* glsl */ `
     vec3 waterBase = mix(shallowWaterCol, midWaterCol, smoothstep(0.0, 0.45, depthFactor));
     waterBase = mix(waterBase, deepWaterCol, smoothstep(0.40, 1.0, depthFactor));
 
+    float camDist = length(uCameraPos - vWorldPos);
+    float texDetailFade = smoothstep(170.0, 22.0, camDist);
+
+    if (uVizMode == 4) {
+      float windRad = radians(uWindDir);
+      vec2 windVec = vec2(sin(windRad), cos(windRad));
+
+      // Per-pixel Nyquist scale to prevent distant aliasing/pixelation
+      float pixelScale = max(fwidth(vWorldPos.x), fwidth(vWorldPos.z)) / 6.2831853;
+
+      // Natural wind-chop normal perturbation from rotated, wind-elongated simplex octaves
+      vec3 rip = ripplePattern(vWorldPos.xz, windVec, uTime, pixelScale);
+      float h0 = rip.x;
+      vec2 grad = rip.yz;
+
+      float rippleStrength = (0.055 + 0.042 * clamp(uWindSpeed / 18.0, 0.0, 1.0)) * texDetailFade;
+      rippleStrength *= (1.0 - clamp(vPocket * 0.55, 0.0, 0.65));
+      N = normalize(N - vec3(grad.x, 0.0, grad.y) * rippleStrength);
+
+      // Subtle tonal chop variation (brighter chop crests, deeper troughs)
+      waterBase *= 1.0 + (h0 - 0.5) * 0.16 * texDetailFade;
+
+      // Subtle shallow-water caustic shimmer
+      float causticAA = 1.0 - smoothstep(0.16, 0.42, 1.55 * pixelScale);
+      float shallowMask = (1.0 - smoothstep(1.2, 6.0, vDepth)) * texDetailFade * causticAA;
+      float causticRaw = snoiseGrad(vWorldPos.xz * 1.55 + vec2(uTime * 0.55, -uTime * 0.85)).x * 0.5 + 0.5;
+      float caustic = pow(clamp(causticRaw, 0.0, 1.0), 2.2);
+      waterBase += vec3(0.04, 0.16, 0.15) * caustic * shallowMask * 0.50;
+    }
+
     float ndotl = max(0.0, dot(N, L));
     waterBase *= (0.72 + 0.38 * ndotl);
 
@@ -303,10 +410,13 @@ export const oceanFragmentShader = /* glsl */ `
     float foamPattern = fbmFoam(vWorldPos.xz * 0.42 + vec2(0.0, -uTime * 1.5));
     float fineBubbles = noise(vWorldPos.xz * 2.2 + vec2(uTime * 0.7, -uTime * 1.9));
 
-    // Fast, smooth Blinn-Phong ocean specular (no blotchy noise cuts, ultra-lightweight GPU cost)
+    // Fast, smooth Blinn-Phong ocean specular (with crisp sun-glint sparkle in Textured mode)
     vec3 H = normalize(L + V);
     float NdotH = max(0.0, dot(N, H));
     float spec = pow(NdotH, 64.0);
+    if (uVizMode == 4) {
+      spec = spec * 0.65 + pow(NdotH, 240.0) * 1.15;
+    }
     float tubeShelter = 1.0 - clamp(vPocket * 0.75, 0.0, 0.85);
     vec3 sunGlitter = vec3(1.0, 0.96, 0.88) * spec * 0.68 * tubeShelter * uReflectionStrength;
 
@@ -318,6 +428,13 @@ export const oceanFragmentShader = /* glsl */ `
 
     float foamLight = 0.74 + 0.26 * ndotl;
     vec3 foamColor = vec3(0.94, 0.97, 0.99) * foamLight;
+
+    if (uVizMode == 4) {
+      float slopeSteepness = smoothstep(0.18, 0.68, 1.0 - abs(vNormal.y));
+      float filamentNoise = snoiseGrad(vWorldPos.xz * 3.0 + vec2(0.0, -uTime * 1.4)).x * 0.5 + 0.5;
+      float faceFilaments = smoothstep(0.68, 0.95, filamentNoise) * slopeSteepness * 0.22 * texDetailFade;
+      color = mix(color, vec3(0.86, 0.95, 0.98), faceFilaments * (1.0 - totalFoam));
+    }
 
     color = mix(color, foamColor, totalFoam);
 
@@ -357,7 +474,7 @@ export function createOceanMaterial(bathymetryTexture, waveSimTexture) {
 
       uSunDir: { value: new THREE.Vector3(0.4, 0.5, -0.7).normalize() },
       uCameraPos: { value: new THREE.Vector3(0, 25, 90) },
-      uVizMode: { value: 0 },
+      uVizMode: { value: 4 },
       uReflectionStrength: { value: 1.0 },
     },
   });

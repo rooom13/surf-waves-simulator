@@ -201,19 +201,38 @@ export function createSurferFigure() {
   proneFootR.rotation.x = -0.55;
   prone.add(proneFootL, proneFootR);
 
-  // Prone Arms: shoulder pivots for paddling animation
-  const armGeom = new THREE.CapsuleGeometry(0.048, 0.38, 4, 8);
-  armGeom.translate(0, -0.18, 0);
+  // Prone Arms: shoulder + elbow pivots for natural paddling stroke
+  const proneUpperLen = 0.25;
+  const proneForeLen = 0.24;
+  const proneUpperEnd = new THREE.Vector3(0, -proneUpperLen, 0);
+  const proneForeEnd = new THREE.Vector3(0, -proneForeLen, 0);
+  const proneElbowCapGeom = new THREE.SphereGeometry(0.046, 8, 8);
+  const proneHandGeom = new THREE.SphereGeometry(0.042, 6, 6);
+  proneHandGeom.scale(0.95, 0.65, 1.35);
 
-  const proneArmL = new THREE.Group();
-  proneArmL.position.set(-0.17, 0.16, 0.18);
-  const armLMesh = new THREE.Mesh(armGeom, skinMat);
-  proneArmL.add(armLMesh);
+  const createProneArm = (sideSign) => {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(sideSign * 0.17, 0.16, 0.18);
 
-  const proneArmR = new THREE.Group();
-  proneArmR.position.set(0.17, 0.16, 0.18);
-  const armRMesh = new THREE.Mesh(armGeom, skinMat);
-  proneArmR.add(armRMesh);
+    const upper = createLimbSegment(new THREE.Vector3(0, 0, 0), proneUpperEnd, 0.044, wetsuitMat);
+    shoulder.add(upper);
+
+    const elbow = new THREE.Group();
+    elbow.position.copy(proneUpperEnd);
+
+    const elbowCap = new THREE.Mesh(proneElbowCapGeom, wetsuitMat);
+    const forearm = createLimbSegment(new THREE.Vector3(0, 0, 0), proneForeEnd, 0.040, skinMat);
+    const hand = new THREE.Mesh(proneHandGeom, skinMat);
+    hand.position.copy(proneForeEnd);
+
+    elbow.add(elbowCap, forearm, hand);
+    shoulder.add(elbow);
+
+    return { shoulder, elbow };
+  };
+
+  const { shoulder: proneArmL, elbow: proneElbowL } = createProneArm(-1);
+  const { shoulder: proneArmR, elbow: proneElbowR } = createProneArm(1);
 
   prone.add(proneArmL, proneArmR);
   group.add(prone);
@@ -443,34 +462,41 @@ export function createSurferFigure() {
   sitting.add(sitRightThigh, sitRightKneeMesh, sitRightCalf, sitRightFoot);
 
   // --- Arms resting comfortably along the rails/deck (Seamlessly connected) ---
+  // Note: in board-local space (+Z forward, +Y up), -X is surfer's right and +X is surfer's left.
   // Left Arm (pivot at shoulder)
   const sitArmL = new THREE.Group();
   sitArmL.position.set(-0.16, 0.35, -0.18);
   const sitLocalElbowL = new THREE.Vector3(-0.06, -0.16, 0.06);
-  const sitLocalHandL = new THREE.Vector3(-0.06, -0.29, 0.20);
+  const sitLocalHandOffsetL = new THREE.Vector3(0.0, -0.13, 0.14);
 
   const sitUpL = createLimbSegment(new THREE.Vector3(0, 0, 0), sitLocalElbowL, 0.044, wetsuitMat);
   const sitElbowCapL = new THREE.Mesh(new THREE.SphereGeometry(0.046, 8, 8), wetsuitMat);
   sitElbowCapL.position.copy(sitLocalElbowL);
-  const sitForeL = createLimbSegment(sitLocalElbowL, sitLocalHandL, 0.040, skinMat);
+  const sitElbowL = new THREE.Group();
+  sitElbowL.position.copy(sitLocalElbowL);
+  const sitForeL = createLimbSegment(new THREE.Vector3(0, 0, 0), sitLocalHandOffsetL, 0.040, skinMat);
   const sitHandL = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
-  sitHandL.position.copy(sitLocalHandL);
-  sitArmL.add(sitUpL, sitElbowCapL, sitForeL, sitHandL);
+  sitHandL.position.copy(sitLocalHandOffsetL);
+  sitElbowL.add(sitForeL, sitHandL);
+  sitArmL.add(sitUpL, sitElbowCapL, sitElbowL);
   sitting.add(sitArmL);
 
   // Right Arm (pivot at shoulder)
   const sitArmR = new THREE.Group();
   sitArmR.position.set(0.16, 0.35, -0.18);
   const sitLocalElbowR = new THREE.Vector3(0.06, -0.16, 0.06);
-  const sitLocalHandR = new THREE.Vector3(0.06, -0.29, 0.20);
+  const sitLocalHandOffsetR = new THREE.Vector3(0.0, -0.13, 0.14);
 
   const sitUpR = createLimbSegment(new THREE.Vector3(0, 0, 0), sitLocalElbowR, 0.044, wetsuitMat);
   const sitElbowCapR = new THREE.Mesh(new THREE.SphereGeometry(0.046, 8, 8), wetsuitMat);
   sitElbowCapR.position.copy(sitLocalElbowR);
-  const sitForeR = createLimbSegment(sitLocalElbowR, sitLocalHandR, 0.040, skinMat);
+  const sitElbowR = new THREE.Group();
+  sitElbowR.position.copy(sitLocalElbowR);
+  const sitForeR = createLimbSegment(new THREE.Vector3(0, 0, 0), sitLocalHandOffsetR, 0.040, skinMat);
   const sitHandR = new THREE.Mesh(new THREE.SphereGeometry(0.042, 6, 6), skinMat);
-  sitHandR.position.copy(sitLocalHandR);
-  sitArmR.add(sitUpR, sitElbowCapR, sitForeR, sitHandR);
+  sitHandR.position.copy(sitLocalHandOffsetR);
+  sitElbowR.add(sitForeR, sitHandR);
+  sitArmR.add(sitUpR, sitElbowCapR, sitElbowR);
   sitting.add(sitArmR);
 
   group.add(sitting);
@@ -489,10 +515,14 @@ export function createSurferFigure() {
     proneHead,
     proneArmL,
     proneArmR,
+    proneElbowL,
+    proneElbowR,
     standArmL,
     standArmR,
     sitHead,
     sitArmL,
     sitArmR,
+    sitElbowL,
+    sitElbowR,
   };
 }
