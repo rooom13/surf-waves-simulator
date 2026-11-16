@@ -68,7 +68,7 @@ const oceanParams = {
   tideLevel: 0.2,
   sunElevation: 125.0,
   cloudCover: 0.35,
-  timeScale: 1.0,
+  timeScale: 4.0,
   particlesBarrel: false,
   particlesWhitewater: false,
   particleDensity: 0.0,

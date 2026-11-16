@@ -248,10 +248,10 @@ export class SprayParticleSystem {
       let l = this.life[i];
       if (l <= 0) continue;
 
-      // Clean up particle if its type was disabled
+      // Clean up ocean particle if its type was disabled (keep surfer board-carve spray active)
       const t = this.types[i];
       if ((!enableBarrel && t === PARTICLE_TYPE_BARREL) ||
-          (!enableWhitewater && (t === PARTICLE_TYPE_WHITEWATER || t === PARTICLE_TYPE_BOARD_SPRAY))) {
+          (!enableWhitewater && t === PARTICLE_TYPE_WHITEWATER)) {
         this.life[i] = 0;
         this.positions[i * 3 + 1] = -200;
         this.alphas[i] = 0.0;

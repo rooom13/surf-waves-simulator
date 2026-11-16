@@ -902,24 +902,55 @@ export class SurferPovController {
     }
     if (this.toastTime > 0 && this.toast) this.statusLabel = `⚠ ${this.toast}`;
 
-    // 6. Spawn Surfboard Rail Spray Particles when planing & carving
-    if (!isPaddling && this.speed > 3.4 && this.spraySystem && (oceanParams?.particlesWhitewater ?? false)) {
-      const sprayCount = Math.abs(turnInput) > 0.1 ? 3 : 1;
-      const rightX = -dirZ;
-      const rightZ = dirX;
-      const railSide = turnInput !== 0 ? Math.sign(turnInput) : 1;
-      for (let p = 0; p < sprayCount; p++) {
-        this.spraySystem.spawnParticle(
-          this.pos.x - dirX * 0.65 + rightX * railSide * 0.22 + (Math.random() - 0.5) * 0.25,
-          this.pos.y + 0.08,
-          this.pos.z - dirZ * 0.65 + rightZ * railSide * 0.22 + (Math.random() - 0.5) * 0.25,
-          -this.vel.x * 0.25 + rightX * railSide * (1.8 + Math.random() * 1.4),
-          1.1 + Math.random() * 1.4,
-          -this.vel.z * 0.25 + rightZ * railSide * (1.8 + Math.random() * 1.4),
-          0.32 + Math.random() * 0.25,
-          1.15 + Math.random() * 0.45,
-          PARTICLE_TYPE_BOARD_SPRAY
-        );
+    // 6. Spawn Surfboard Turn Splash / Rooster-Tail Spray when speed & turn aggressivity exceed threshold
+    if (!isPaddling && !this.isFalling && this.spraySystem) {
+      const turnIntensity = Math.max(Math.abs(this.carveInput ?? 0), Math.abs(turnInput));
+      const hardCarve = this.speed >= 4.2 && turnIntensity > 0.35 && Math.abs(this.turnRate) > 0.55;
+      const gentlePlaning = this.speed > 3.4 && (oceanParams?.particlesWhitewater ?? false);
+
+      if (hardCarve || gentlePlaning) {
+        // In +Z forward / +Y up / +yaw-left coordinates, (-dirZ, dirX) is the right side (opposite of +yaw left turn)
+        const turnSign = Math.sign(this.carveInput || turnInput || 1);
+        const oppX = -dirZ * turnSign;
+        const oppZ = dirX * turnSign;
+        const speedNorm = Math.max(0, Math.min(1, (this.speed - 4.0) / 4.5));
+        const lowSpeedDamp = speedNorm * speedNorm;
+        const speedFactor = Math.min(2.2, Math.max(0.25, (this.speed - 3.6) / 4.2));
+        const splashPower = hardCarve
+          ? Math.min(1.0, speedNorm * 0.65 + (turnIntensity - 0.35) * 0.55)
+          : 0.0;
+        const rawCount = hardCarve ? (1.0 + splashPower * 12.0) * lowSpeedDamp : 1.0;
+        const sprayCount = Math.floor(rawCount) + (Math.random() < (rawCount % 1) ? 1 : 0);
+
+        for (let p = 0; p < sprayCount; p++) {
+          const fanSpread = (Math.random() - 0.5) * 1.1; // Wide fan perpendicular to the rail
+          const railPos = (Math.random() - 0.65) * 0.75; // Along the engaged rail from mid-board to tail
+          const outSpeed = hardCarve
+            ? (3.2 + splashPower * 5.5) * speedFactor + Math.random() * 1.5
+            : 1.6 + Math.random() * 1.2;
+          const upSpeed = hardCarve
+            ? (1.4 + splashPower * 2.4) * Math.sqrt(speedFactor) + Math.random() * 1.1
+            : 1.0 + Math.random() * 1.2;
+          const inheritForward = hardCarve ? 0.78 : 0.25;
+          const life = hardCarve
+            ? 0.14 + 0.18 * Math.min(1.8, speedFactor) + Math.random() * 0.14
+            : 0.30 + Math.random() * 0.20;
+          const size = hardCarve
+            ? 0.85 + splashPower * 1.25 + Math.random() * 0.45
+            : 1.10 + Math.random() * 0.40;
+
+          this.spraySystem.spawnParticle(
+            this.pos.x + dirX * railPos + oppX * 0.24,
+            this.pos.y + 0.09,
+            this.pos.z + dirZ * railPos + oppZ * 0.24,
+            this.vel.x * inheritForward + (oppX + dirX * fanSpread) * outSpeed,
+            upSpeed,
+            this.vel.z * inheritForward + (oppZ + dirZ * fanSpread) * outSpeed,
+            life,
+            size,
+            PARTICLE_TYPE_BOARD_SPRAY
+          );
+        }
       }
     }
 
