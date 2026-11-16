@@ -403,7 +403,7 @@ function animate() {
         : currentAnim === 'takeoff'
         ? 1.0 / 0.48
         : currentAnim === 'sit_turn_left' || currentAnim === 'sit_turn_right'
-        ? 3.5
+        ? 5.25
         : currentAnim === 'duck_dive'
         ? 0.6
         : 1.0;

@@ -299,10 +299,10 @@ export const oceanFragmentShader = /* glsl */ `
     const mat2 r3 = mat2(0.31, 0.95, -0.95, 0.31);
     const mat2 ir3 = mat2(0.31, -0.95, 0.95, 0.31);
 
-    float aa0 = 1.0 - smoothstep(0.14, 0.40, 0.65 * pixelScale);
-    float aa1 = 1.0 - smoothstep(0.14, 0.40, 1.35 * pixelScale);
-    float aa2 = 1.0 - smoothstep(0.14, 0.40, 2.75 * pixelScale);
-    float aa3 = 1.0 - smoothstep(0.14, 0.40, 5.40 * pixelScale);
+    float aa0 = 1.0 - smoothstep(0.06, 0.22, 0.65 * pixelScale);
+    float aa1 = 1.0 - smoothstep(0.06, 0.22, 1.35 * pixelScale);
+    float aa2 = 1.0 - smoothstep(0.06, 0.22, 2.75 * pixelScale);
+    float aa3 = 1.0 - smoothstep(0.06, 0.22, 5.40 * pixelScale);
 
     vec3 n0 = snoiseGrad(wp * 0.65 + vec2(-t * 0.38, t * 0.08)) * aa0;
     vec3 n1 = snoiseGrad((r1 * wp) * 1.35 + vec2(-t * 0.55, -t * 0.14)) * aa1;
@@ -357,7 +357,8 @@ export const oceanFragmentShader = /* glsl */ `
     waterBase = mix(waterBase, deepWaterCol, smoothstep(0.40, 1.0, depthFactor));
 
     float camDist = length(uCameraPos - vWorldPos);
-    float texDetailFade = smoothstep(170.0, 22.0, camDist);
+    float viewGrazing = smoothstep(0.03, 0.22, abs(dot(N, V)));
+    float texDetailFade = smoothstep(115.0, 18.0, camDist) * viewGrazing;
 
     if (uVizMode == 4) {
       float windRad = radians(uWindDir);
@@ -410,9 +411,9 @@ export const oceanFragmentShader = /* glsl */ `
     vec3 R = reflect(-V, N);
     vec3 skyReflect = mix(uSkyHorizon, uSkyZenith, clamp(R.y, 0.0, 1.0));
 
-    // Multi-Scale Lacy Whitewater Foam
-    float foamPattern = fbmFoam(vWorldPos.xz * 0.42 + vec2(0.0, -uTime * 1.5));
-    float fineBubbles = noise(vWorldPos.xz * 2.2 + vec2(uTime * 0.7, -uTime * 1.9));
+    // Multi-Scale Lacy Whitewater Foam (AA-filtered at distance)
+    float foamPattern = mix(0.5, fbmFoam(vWorldPos.xz * 0.42 + vec2(0.0, -uTime * 1.5)), smoothstep(240.0, 55.0, camDist));
+    float fineBubbles = mix(0.5, noise(vWorldPos.xz * 2.2 + vec2(uTime * 0.7, -uTime * 1.9)), texDetailFade);
 
     // Fast, smooth Blinn-Phong ocean specular (with crisp sun-glint sparkle in Textured mode)
     vec3 H = normalize(L + V);
@@ -452,6 +453,12 @@ export const oceanFragmentShader = /* glsl */ `
       // Translucent over shallow reefs/sandbars so ground structure is visible from above too
       alpha = mix(0.58, 0.91, clamp(vDepth / 6.5, 0.0, 1.0));
       alpha = max(alpha, totalFoam * 0.96);
+    }
+
+    // Atmospheric horizon haze blend to eliminate hard far-edge aliasing on the horizon
+    if (uCameraPos.y >= vWorldPos.y) {
+      float horizonHaze = smoothstep(150.0, 360.0, camDist) * (1.0 - smoothstep(0.02, 0.25, abs(V.y)));
+      color = mix(color, uSkyHorizon, clamp(horizonHaze * 0.85, 0.0, 0.85));
     }
 
     gl_FragColor = vec4(color, alpha);

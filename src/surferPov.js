@@ -971,9 +971,9 @@ export class SurferPovController {
         this.sitHead.rotation.y = turnInput * 0.22;
 
         if (Math.abs(turnInput) > 0.05) {
-          this.sitTurnBlend += (1.0 - this.sitTurnBlend) * (1.0 - Math.exp(-frameRealDt * 24.0));
+          this.sitTurnBlend += (1.0 - this.sitTurnBlend) * (1.0 - Math.exp(-frameRealDt * 32.0));
           this.sitTurnDir = Math.sign(turnInput); // +1 = left (+yaw), -1 = right (-yaw)
-          this.sitTurnPhase = (this.sitTurnPhase + frameRealDt * 22.0) % (Math.PI * 2);
+          this.sitTurnPhase = (this.sitTurnPhase + frameRealDt * 33.0) % (Math.PI * 2);
         } else {
           this.sitTurnBlend *= Math.exp(-frameRealDt * 7.0);
           if (this.sitTurnBlend < 0.001) {
