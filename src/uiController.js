@@ -277,67 +277,83 @@ export class UIController {
   _bindPresetAndModeSelectors() {
     const p = this.oceanParams;
 
-    // Bathymetry Preset Selector
+    // Bathymetry Preset Selector (plus ?preset= / ?spot= / ?scenario= URL query param support)
     const presetSelect = document.getElementById('preset-select');
-    if (presetSelect) {
-      presetSelect.addEventListener('change', (e) => {
-        const preset = e.target.value;
-        this.btyManager.sculptOffset.fill(0);
-        this.btyManager.generatePreset(preset);
-        this.applyCameraPreset(document.getElementById('camera-select')?.value || 'overview');
+    const applyScenarioPreset = (preset, { warmup = true } = {}) => {
+      this.btyManager.sculptOffset.fill(0);
+      this.btyManager.generatePreset(preset);
+      this.applyCameraPreset(document.getElementById('camera-select')?.value || 'overview');
 
-        const presetInterference = {
-          right_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
-          left_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
-          jetty_wedge: { bw: 0.75, sw: 1.35, sh: 1.8, sp: 12.0, sAngle: 40.0 },
-          reef_pass: { bw: 0.20, sw: 0.65, sh: 2.5, sp: 15.0, sAngle: 30.0 },
-          aframe_reef: { bw: 0.30, sw: 0.65, sh: 2.2, sp: 13.0, sAngle: 35.0 },
-          beach_break: { bw: 0.65, sw: 0.55, sh: 1.8, sp: 11.0, sAngle: 25.0 },
-          rivermouth: { bw: 0.30, sw: 0.65, sh: 2.0, sp: 14.0, sAngle: 35.0 },
-          nazare: { bw: 1.15, sw: 2.10, sh: 8.5, sp: 18.0, sAngle: 46.0 },
-        }[preset];
+      const presetInterference = {
+        right_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
+        left_point: { bw: 0.35, sw: 0.75, sh: 2.2, sp: 14.0, sAngle: 35.0 },
+        jetty_wedge: { bw: 0.75, sw: 1.35, sh: 1.8, sp: 12.0, sAngle: 40.0 },
+        reef_pass: { bw: 0.20, sw: 0.65, sh: 2.5, sp: 15.0, sAngle: 30.0 },
+        aframe_reef: { bw: 0.30, sw: 0.65, sh: 2.2, sp: 13.0, sAngle: 35.0 },
+        beach_break: { bw: 0.65, sw: 0.55, sh: 1.8, sp: 11.0, sAngle: 25.0 },
+        rivermouth: { bw: 0.30, sw: 0.65, sh: 2.0, sp: 14.0, sAngle: 35.0 },
+        nazare: { bw: 1.15, sw: 2.10, sh: 8.5, sp: 18.0, sAngle: 46.0 },
+      }[preset];
 
-        if (presetInterference) {
-          p.backwashStrength = presetInterference.bw;
-          p.sideWaveStrength = presetInterference.sw;
-          if (presetInterference.sh) p.swellHeight = presetInterference.sh;
-          if (presetInterference.sp) p.swellPeriod = presetInterference.sp;
-          if (presetInterference.sAngle) p.sideWaveAngle = presetInterference.sAngle;
+      if (presetInterference) {
+        p.backwashStrength = presetInterference.bw;
+        p.sideWaveStrength = presetInterference.sw;
+        if (presetInterference.sh) p.swellHeight = presetInterference.sh;
+        if (presetInterference.sp) p.swellPeriod = presetInterference.sp;
+        if (presetInterference.sAngle) p.sideWaveAngle = presetInterference.sAngle;
 
-          const bwEl = document.getElementById('backwash-strength');
-          const swEl = document.getElementById('sidewave-strength');
-          const shEl = document.getElementById('swell-height');
-          const spEl = document.getElementById('swell-period');
-          const saEl = document.getElementById('sidewave-angle');
+        const bwEl = document.getElementById('backwash-strength');
+        const swEl = document.getElementById('sidewave-strength');
+        const shEl = document.getElementById('swell-height');
+        const spEl = document.getElementById('swell-period');
+        const saEl = document.getElementById('sidewave-angle');
 
-          if (bwEl) bwEl.value = presetInterference.bw;
-          if (swEl) swEl.value = presetInterference.sw;
-          if (shEl && presetInterference.sh) shEl.value = presetInterference.sh;
-          if (spEl && presetInterference.sp) spEl.value = presetInterference.sp;
-          if (saEl && presetInterference.sAngle) saEl.value = presetInterference.sAngle;
+        if (bwEl) bwEl.value = presetInterference.bw;
+        if (swEl) swEl.value = presetInterference.sw;
+        if (shEl && presetInterference.sh) shEl.value = presetInterference.sh;
+        if (spEl && presetInterference.sp) spEl.value = presetInterference.sp;
+        if (saEl && presetInterference.sAngle) saEl.value = presetInterference.sAngle;
 
-          const valBw = document.getElementById('val-backwash');
-          const valSw = document.getElementById('val-sidewave-strength');
-          const valSh = document.getElementById('val-swell-height');
-          const valSp = document.getElementById('val-swell-period');
-          const valSa = document.getElementById('val-sidewave-angle');
+        const valBw = document.getElementById('val-backwash');
+        const valSw = document.getElementById('val-sidewave-strength');
+        const valSh = document.getElementById('val-swell-height');
+        const valSp = document.getElementById('val-swell-period');
+        const valSa = document.getElementById('val-sidewave-angle');
 
-          if (valBw) valBw.textContent = `${presetInterference.bw.toFixed(2)}x`;
-          if (valSw) valSw.textContent = `${presetInterference.sw.toFixed(2)}x`;
-          if (valSh && presetInterference.sh) {
-            const ft = (presetInterference.sh * 3.28084).toFixed(1);
-            valSh.textContent = `${presetInterference.sh.toFixed(1)} m (${ft} ft)`;
-          }
-          if (valSp && presetInterference.sp) {
-            valSp.textContent = `${presetInterference.sp.toFixed(0)} s (${presetInterference.sp >= 14 ? 'Groundswell' : 'Mid-Period'})`;
-          }
-          if (valSa && presetInterference.sAngle) valSa.textContent = `${presetInterference.sAngle}°`;
+        if (valBw) valBw.textContent = `${presetInterference.bw.toFixed(2)}x`;
+        if (valSw) valSw.textContent = `${presetInterference.sw.toFixed(2)}x`;
+        if (valSh && presetInterference.sh) {
+          const ft = (presetInterference.sh * 3.28084).toFixed(1);
+          valSh.textContent = `${presetInterference.sh.toFixed(1)} m (${ft} ft)`;
         }
+        if (valSp && presetInterference.sp) {
+          valSp.textContent = `${presetInterference.sp.toFixed(0)} s (${presetInterference.sp >= 14 ? 'Groundswell' : 'Mid-Period'})`;
+        }
+        if (valSa && presetInterference.sAngle) valSa.textContent = `${presetInterference.sAngle}°`;
+      }
 
+      if (warmup) {
         this.waveSolver.warmup(p, 300);
         this.spraySystem.warmup(p, this.waveSolver, 45);
         this.crowdSystem.populate(this.btyManager, p.tideLevel);
         this.syncUIAndTelemetry();
+      }
+    };
+
+    if (presetSelect) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const initialPreset = urlParams.get('preset') || urlParams.get('spot') || urlParams.get('scenario');
+      if (initialPreset && Array.from(presetSelect.options).some((opt) => opt.value === initialPreset)) {
+        presetSelect.value = initialPreset;
+        applyScenarioPreset(initialPreset, { warmup: false });
+      }
+
+      presetSelect.addEventListener('change', (e) => {
+        const preset = e.target.value;
+        applyScenarioPreset(preset, { warmup: true });
+        const url = new URL(window.location.href);
+        url.searchParams.set('preset', preset);
+        window.history.replaceState(null, '', url);
       });
     }
 

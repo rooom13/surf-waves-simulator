@@ -24,6 +24,7 @@ export class CameraController {
     this.controls.maxPolarAngle = Math.PI * 0.96; // Allow inspecting underwater seabed
     this.controls.minDistance = 3;
     this.controls.maxDistance = 850;
+    this.controls.enableZoom = false; // Mouse wheel controls WASD/QE camera movement speed
     this.controls.screenSpacePanning = true;
     this.controls.panSpeed = 1.35;
     this.controls.mouseButtons = {
@@ -31,6 +32,8 @@ export class CameraController {
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.PAN,
     };
+
+    this.moveSpeedScale = 1.0;
 
     // Pre-allocated vectors for WASD & free-look (zero allocations in hot loop)
     this.camMoveVelocity = new THREE.Vector3();
@@ -70,6 +73,18 @@ export class CameraController {
     };
     this.domElement.addEventListener('mousedown', preventMiddle);
     this.domElement.addEventListener('auxclick', preventMiddle);
+
+    // Mouse wheel adjusts camera fly/orbit movement speed (when not in surfer POV)
+    this.domElement.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.isSurferActive()) return;
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        this.moveSpeedScale = Math.max(0.15, Math.min(6.0, this.moveSpeedScale * factor));
+      },
+      { passive: false }
+    );
 
     // Free-look: left-drag turns view around camera's own position
     this.domElement.addEventListener('pointerdown', (e) => {
@@ -150,7 +165,7 @@ export class CameraController {
     if (ks.KeyE) moveY += 1;
     if (ks.KeyQ) moveY -= 1;
 
-    const baseSpeed = ks.ShiftLeft || ks.ShiftRight ? 95.0 : 42.0;
+    const baseSpeed = (ks.ShiftLeft || ks.ShiftRight ? 95.0 : 42.0) * this.moveSpeedScale;
 
     this.camera.getWorldDirection(this.camForward);
     this.camForward.normalize();
