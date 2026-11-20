@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>¡Enhorabuena! · Tu espacio de canto</title>
+    <style>
+      :root {
+        --bg-linen: #f6f3ec;
+        --bg-sand: #eae3d5;
+        --card-bg: rgba(252, 250, 245, 0.92);
+        --card-border: #dfd7c8;
+        --sage: #5c7260;
+        --sage-soft: rgba(92, 114, 96, 0.12);
+        --terracotta: #b57c5a;
+        --ink: #2b312c;
+        --ink-muted: #5d665e;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(
+            circle at 50% 15%,
+            rgba(181, 124, 90, 0.08) 0%,
+            transparent 55%
+          ),
+          linear-gradient(170deg, var(--bg-linen) 0%, var(--bg-sand) 100%);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow-x: hidden;
+        padding: max(24px, env(safe-area-inset-top))
+          max(18px, env(safe-area-inset-right))
+          max(28px, env(safe-area-inset-bottom))
+          max(18px, env(safe-area-inset-left));
+      }
+
+      /* Aura suave que respira en segundo plano */
+      .breath-aura {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: min(92vw, 460px);
+        height: min(92vw, 460px);
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(92, 114, 96, 0.14) 0%,
+          rgba(92, 114, 96, 0.04) 55%,
+          transparent 75%
+        );
+        pointer-events: none;
+        animation: breathe 7s ease-in-out infinite;
+      }
+
+      @keyframes breathe {
+        0%,
+        100% {
+          transform: translate(-50%, -50%) scale(0.95);
+          opacity: 0.75;
+        }
+        50% {
+          transform: translate(-50%, -50%) scale(1.06);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .breath-aura {
+          animation: none;
+        }
+      }
+
+      .card {
+        position: relative;
+        width: 100%;
+        max-width: 410px;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 28px;
+        padding: 36px 26px 32px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 18px 45px rgba(43, 49, 44, 0.08),
+          0 2px 10px rgba(43, 49, 44, 0.04);
+        text-align: center;
+      }
+
+      .zen-emblem {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 20px;
+        border-radius: 50%;
+        background: var(--sage-soft);
+        border: 1px solid rgba(92, 114, 96, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--sage);
+      }
+
+      .eyebrow {
+        display: inline-block;
+        font-size: 11.5px;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--sage);
+        margin-bottom: 10px;
+      }
+
+      h1 {
+        font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+        font-size: clamp(1.9rem, 6.5vw, 2.25rem);
+        font-weight: 400;
+        line-height: 1.2;
+        color: var(--ink);
+        margin-bottom: 16px;
+        letter-spacing: 0.01em;
+      }
+
+      .lead {
+        font-size: 1.03rem;
+        line-height: 1.68;
+        color: var(--ink);
+        margin-bottom: 24px;
+      }
+
+      .divider {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 22px;
+        color: var(--terracotta);
+        opacity: 0.7;
+      }
+
+      .divider::before,
+      .divider::after {
+        content: "";
+        height: 1px;
+        width: 48px;
+        background: var(--card-border);
+      }
+
+      .voucher {
+        background: rgba(92, 114, 96, 0.06);
+        border: 1px solid rgba(92, 114, 96, 0.2);
+        border-radius: 20px;
+        padding: 20px 18px;
+        margin-bottom: 22px;
+      }
+
+      .voucher-badge {
+        display: inline-block;
+        background: var(--sage);
+        color: #fcfaf5;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 6px 14px;
+        border-radius: 999px;
+        margin-bottom: 14px;
+      }
+
+      .voucher p {
+        font-size: 0.97rem;
+        line-height: 1.68;
+        color: var(--ink-muted);
+      }
+
+      .footer-note {
+        font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+        font-style: italic;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: var(--terracotta);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="breath-aura" aria-hidden="true"></div>
+
+    <main class="card">
+      <div class="zen-emblem" aria-hidden="true">
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <!-- Nota musical minimalista -->
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      </div>
+
+      <span class="eyebrow">Número secreto desbloqueado</span>
+      <h1>¡Enhorabuena!</h1>
+
+      <p class="lead">
+        Has encontrado el número secreto: acabas de descubrir el teléfono de una
+        profesora particular de canto&nbsp;:)
+      </p>
+
+      <div class="divider" aria-hidden="true">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <circle cx="5" cy="5" r="2.2" />
+        </svg>
+      </div>
+
+      <section class="voucher" aria-label="Detalle del regalo">
+        <span class="voucher-badge">10 clases · 1 hora semanal</span>
+        <p>
+          Tienes por delante 10 sesiones de una hora a la semana para
+          desconectar del mundo, respirar y sumergirte en un ejercicio donde solo
+          existen tu voz y el momento presente.
+        </p>
+      </section>
+
+      <p class="footer-note">Respira, suelta y disfruta de tu momento.</p>
+    </main>
+  </body>
+</html>
